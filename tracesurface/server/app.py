@@ -13,7 +13,7 @@ from tracesurface.server.routes.secrets import router as secrets_router
 from tracesurface.server.routes.stats import router as stats_router
 from tracesurface.storage.sqlite.connection import init
 
-STATIC_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def create_app() -> FastAPI:
@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
     def index():
         html = STATIC_DIR / "index.html"
         if not html.exists():
-            raise HTTPException(500, "frontend/dist/index.html not found")
+            raise HTTPException(500, f"report frontend not found: {html}")
         return FileResponse(str(html))
 
     return app

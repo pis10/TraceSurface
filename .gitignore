@@ -11,6 +11,7 @@ research/
 
 .venv
 node_modules/
+tracesurface/server/static/
 
 .DS_Store
 

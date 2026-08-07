@@ -2,37 +2,69 @@
 
 # TraceSurface
 
-**Discover Web APIs. Find unauthorized access.**
+**Find the APIs hiding in frontend code. Verify unauthorized access.**
 
-API asset discovery and unauthorized-access testing for modern frontend applications.
+Dynamic browser tracing meets JavaScript static analysis, built for SPAs and micro-frontends.
 
-[Quick Start](#quick-start) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](./README.md)
+[Quick Start](#quick-start) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
 
 <p>
-  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
-  <img alt="Playwright CDP" src="https://img.shields.io/badge/Playwright-CDP-2EAD33?logo=playwright&logoColor=white">
-  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111827">
-  <img alt="MIT License" src="https://img.shields.io/badge/License-MIT-22C55E">
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white">
+  <a href="https://github.com/pis10/TraceSurface/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-22C55E"></a>
 </p>
 
 </div>
 
-TraceSurface is an open-source tool for penetration testing, security assessment, and API asset inventory. Give it a target URL and it runs a real browser, collects frontend artifacts and routes, extracts hidden API calls, and actively replays requests without captured authentication to surface unauthorized-access and weak-authorization risks.
+TraceSurface is an open-source tool for penetration testing, security assessment, and API asset inventory. Give it a site and it launches a real browser to collect frontend artifacts and routes, extracts hidden API calls from JavaScript, then replays requests without any captured authentication to surface unauthorized-access and weak-authorization risks.
 
-It is designed for SPAs, admin panels, and micro-frontends where traditional content discovery misses endpoints hidden in minified JavaScript, lazy-loaded chunks, authenticated routes, or runtime client configuration.
+It shines exactly where traditional content discovery falls short: endpoints that exist only in minified JS, lazy-loaded chunks, post-login routes, or runtime client configuration.
+
+![Report: Verification view](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.png)
 
 ## Capabilities
 
 - **API asset discovery**: combine browser traffic, HTML, JavaScript, webpack/Vite chunks, dynamic routes, and micro-frontend entries to reconstruct the API surface.
-- **Authenticated scanning**: save and reuse browser state to reach business pages and frontend modules loaded only after login.
-- **Unauthorized-access testing**: replay discovered APIs and real browser requests without Cookie, Authorization, or other captured authentication headers.
-- **Static call extraction**: recognize `fetch`, XHR, axios, object configs, custom wrappers, and split gateway wrappers.
+- **Optional login state**: scanning works fully without credentials; save and reuse browser state to go deeper into pages and frontend modules loaded only after login.
+- **Unauthorized-access testing**: replay discovered APIs and real browser requests with no authentication material — Cookie, Authorization, and friends are never carried over.
+- **Static call extraction**: recognize `fetch`, XHR, axios, configuration objects, custom wrappers, and argument-split gateway calls.
 - **Evidence and confidence tiers**: retain call sites, runtime requests, baseURL sources, binding rules, and downgrade reasons for every result.
 - **Local report**: inspect API Surface, Verification, Network, and Secrets without an external service.
 
 ## Quick Start
 
-TraceSurface requires Python 3.12, [uv](https://docs.astral.sh/uv/), and Node.js 20+.
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+Install from the GitHub Release wheel (no Node.js needed):
+
+```bash
+uv tool install https://github.com/pis10/TraceSurface/releases/download/v1.0.0/tracesurface-1.0.0-py3-none-any.whl
+tracesurface install-browser   # first run only, downloads Chromium
+```
+
+Scan a target you are authorized to assess:
+
+```bash
+tracesurface scan https://target.example
+```
+
+Start the local report:
+
+```bash
+tracesurface serve
+```
+
+Open `http://127.0.0.1:8765` in your browser.
+
+For discovery without active replay:
+
+```bash
+tracesurface scan https://target.example --no-replay
+```
+
+<details>
+<summary>Install from source</summary>
+
+Requires Python 3.12, uv, and Node.js 20+.
 
 ```bash
 git clone https://github.com/pis10/TraceSurface.git
@@ -43,29 +75,15 @@ uv run playwright install chromium
 
 cd frontend
 npm ci
-npm run build
+npm run build   # output goes to tracesurface/server/static
 cd ..
 ```
 
-Scan a target you are authorized to assess:
+Then run everything with `uv run tracesurface ...`.
 
-```bash
-uv run tracesurface scan https://target.example
-```
+</details>
 
-Start the local report:
-
-```bash
-uv run tracesurface serve
-```
-
-Open `http://127.0.0.1:8765` in your browser.
-
-For discovery without active replay:
-
-```bash
-uv run tracesurface scan https://target.example --no-replay
-```
+![Command overview](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-help.png)
 
 ## Common Workflows
 
@@ -81,6 +99,10 @@ uv run tracesurface scan https://target.example --no-replay
 
 `login` stores Playwright `storage_state` and optional `sessionStorage` in `~/.tracesurface/auth.json`. Later scans load it automatically.
 
+Full `scan` options:
+
+![Full scan options](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-scan-help.png)
+
 ## Interpreting Unauthorized-Access Results
 
 TraceSurface sends two kinds of inputs through the same unauthenticated replay pipeline:
@@ -88,7 +110,7 @@ TraceSurface sends two kinds of inputs through the same unauthenticated replay p
 1. API candidates inferred from frontend source.
 2. Real Fetch/XHR requests observed in an authenticated browser session.
 
-Real requests retain their method, body, and Content-Type, but captured authentication headers are never copied. The report links the authenticated browser request to its unauthenticated replay, making it easy to prioritize endpoints that still return successful responses, sensitive data, or high-value JSON.
+Real requests retain their method, body, and Content-Type, but captured authentication headers are never carried over. The report links the authenticated browser request to its unauthenticated replay, making it easy to prioritize endpoints that still return successful responses or sensitive data without credentials.
 
 > [!NOTE]
 > A `2xx` response means the endpoint remained reachable without the original authentication context; it is not automatically a vulnerability. Confirm the response content, business identity, and intended authorization boundary before reporting a finding.
@@ -98,7 +120,7 @@ Real requests retain their method, body, and Content-Type, but captured authenti
 | View | Purpose |
 | --- | --- |
 | **API Surface** | Resolved APIs, call sites, evidence tiers, and baseURL sources |
-| **Verification** | Active replay requests, responses, status codes, and high-value results |
+| **Verification** | Active replay requests, responses, status codes, and matches |
 | **Network** | Real browser Fetch/XHR traffic, initiator stacks, and linked unauthenticated replay |
 | **Secrets** | Sensitive information found in frontend artifacts, with context |
 

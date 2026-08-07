@@ -8,8 +8,8 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 Push-Location $RepoRoot
 try {
-    if (-not (Test-Path "frontend/dist/index.html")) {
-        throw "frontend/dist/index.html not found. Run npm run build in frontend first."
+    if (-not (Test-Path "tracesurface/server/static/index.html")) {
+        throw "tracesurface/server/static/index.html not found. Run npm run build in frontend first."
     }
 
     Remove-Item $OutputDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -24,7 +24,7 @@ try {
         --playwright-include-browser=none `
         --output-dir=$OutputDir `
         --output-filename=tracesurface `
-        --include-data-dir=frontend/dist=frontend/dist `
+        --include-data-dir=tracesurface/server/static=tracesurface/server/static `
         --include-data-dir=tracesurface/storage/sqlite/migrations=tracesurface/storage/sqlite/migrations `
         --include-data-files=tracesurface/secrets/rules.yml=tracesurface/secrets/rules.yml `
         tracesurface

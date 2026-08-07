@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "dist",
+    outDir: "../tracesurface/server/static",
     emptyOutDir: true,
   },
   server: {

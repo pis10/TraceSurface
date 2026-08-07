@@ -332,6 +332,24 @@ def login(
     )
 
 
+@app.command(short_help="下载扫描所需的 Chromium 浏览器（仅首次需要）")
+def install_browser() -> None:
+    import subprocess
+    import sys
+
+    ui.brand("浏览器安装")
+    ui.notice("下载 Playwright Chromium，仅在首次使用或升级 Playwright 后需要")
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"], check=True
+        )
+    except subprocess.CalledProcessError as e:
+        ui.abort(f"Chromium 下载失败（exit {e.returncode}），请检查网络后重试")
+
+    ui.success("Chromium 已就绪")
+
+
 @app.command(short_help="启动本地报告站，浏览扫描结果")
 def serve(
     host: str = typer.Option("127.0.0.1", "--host", help="绑定地址"),
