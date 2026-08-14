@@ -80,7 +80,7 @@ def record_scan_success(
     _warning_details(p.summary)
 
     metrics = [
-        _metric("接口", p.summary.ast_total),
+        _metric("调用点", p.summary.ast_total),
         f"[tracesurface.dim]已确认[/] [green]{p.summary.confirmed_count}[/]",
         _metric("仅CDP", p.summary.cdp_only_count),
         f"[tracesurface.dim]分层[/] L1 {p.summary.tier_l1} / "
@@ -169,7 +169,7 @@ def render_summary(
     rows: list[tuple[str, str]] = [
         ("站点", site_value),
         (
-            "接口",
+            "调用点",
             ui.join_dot(
                 [
                     _metric("合计", sum_ast),

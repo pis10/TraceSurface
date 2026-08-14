@@ -4,9 +4,9 @@
 
 **Find the APIs hiding in frontend code. Verify unauthorized access.**
 
-Dynamic browser tracing meets JavaScript static analysis, built for SPAs and micro-frontends.
+Dynamic browser tracing meets JavaScript AST analysis. Traffic and source confirm each other — one URL in, the full frontend API surface out.
 
-[Quick Start](#quick-start) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
+[Quick Start](#quick-start) · [Case Study](#case-study-login-page-only) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
 
 <p>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white">
@@ -15,20 +15,48 @@ Dynamic browser tracing meets JavaScript static analysis, built for SPAs and mic
 
 </div>
 
-TraceSurface is an open-source tool for penetration testing, security assessment, and API asset inventory. Give it a site and it launches a real browser to collect frontend artifacts and routes, extracts hidden API calls from JavaScript, then replays requests without any captured authentication to surface unauthorized-access and weak-authorization risks.
+TraceSurface is built for penetration testing, security assessment, and API inventory. It collects frontend assets in a real browser, pulls API call sites out of JavaScript with tree-sitter, and resolves final URLs against real requests captured over CDP. The two signals complete each other: what the traffic never triggered, the source still reveals; what the source can't fully resolve, the traffic pins down. Candidates are then replayed without browser credentials to check for missing or weak authorization.
 
-It shines exactly where traditional content discovery falls short: endpoints that exist only in minified JS, lazy-loaded chunks, post-login routes, or runtime client configuration.
+## Case Study: Login Page Only
 
-![Report: Verification view](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.png)
+Take the official RuoYi Vue demo. The entry point is the login page — no credentials, no clicking into the admin UI:
+
+```bash
+tracesurface scan https://vue.ruoyi.vip/login
+```
+
+![RuoYi demo login page](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/ruoyi-login.jpg)
+
+The login page requests `GET /prod-api/captchaImage` on its own. TraceSurface aligns that request with the `/captchaImage` call site in `app.js`, confirms `/prod-api` as the API prefix, and keeps digging through entry scripts and webpack lazy chunks:
+
+![Scan of the RuoYi demo](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/scan-ruoyi.png)
+
+About 61 seconds later:
+
+| Metric | Result |
+| --- | --- |
+| AST call sites | 316 (before dedup) |
+| Resolved APIs | 135 (1 Confirmed, 134 across L1–L4) |
+| Frontend routes | 19 found, 19 visited |
+| Requests replayed | 92 (88 2xx, 4 4xx) |
+| Secret matches | 1 |
+
+The result goes far beyond captcha and login — roles, menus, departments, dictionaries, monitoring, AI conversations: the admin modules' APIs all come back from a single login page.
+
+![Report: APIs recovered from the login page](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
+
+> [!NOTE]
+> 79 of the 88 2xx responses returned `code: 401` in the body. HTTP 2xx means the request was accepted, not that it succeeded — read the response before calling it unauthorized access.
 
 ## Capabilities
 
-- **API asset discovery**: combine browser traffic, HTML, JavaScript, webpack/Vite chunks, dynamic routes, and micro-frontend entries to reconstruct the API surface.
-- **Optional login state**: scanning works fully without credentials; save and reuse browser state to go deeper into pages and frontend modules loaded only after login.
-- **Unauthorized-access testing**: replay discovered APIs and real browser requests with no authentication material — Cookie, Authorization, and friends are never carried over.
-- **Static call extraction**: recognize `fetch`, XHR, axios, configuration objects, custom wrappers, and argument-split gateway calls.
-- **Evidence and confidence tiers**: retain call sites, runtime requests, baseURL sources, binding rules, and downgrade reasons for every result.
-- **Local report**: inspect API Surface, Verification, Network, and Secrets without an external service.
+- **Real browser collection**: captures Fetch/XHR, initiator stacks, scripts, routes, and micro-frontend entries — everything the browser sees.
+- **AST extraction**: parses JavaScript with tree-sitter to recognize `fetch`, XHR, axios, custom wrappers, and gateway calls.
+- **Lazy-chunk discovery**: reads webpack / Vite chunk maps and fetches business chunks directly instead of waiting for the page to trigger them.
+- **Runtime calibration**: aligns CDP initiator stacks with source call sites to confirm requests and infer base URLs.
+- **Evidence tiers**: labels inferred URLs from L1 to L4, so every conclusion carries its own justification.
+- **Credential-free replay**: resends requests without Cookie, Authorization, or other browser headers — the attacker's view of the API.
+- **Local report**: APIs, real traffic, replay results, and secret matches in one local UI.
 
 ## Quick Start
 
@@ -41,7 +69,7 @@ uv tool install https://github.com/pis10/TraceSurface/releases/download/v1.0.0/t
 tracesurface install-browser   # first run only, downloads Chromium
 ```
 
-Scan a target you are authorized to assess:
+Scan a target:
 
 ```bash
 tracesurface scan https://target.example
@@ -52,6 +80,8 @@ Start the local report:
 ```bash
 tracesurface serve
 ```
+
+![Local report server](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-serve.png)
 
 Open `http://127.0.0.1:8765` in your browser.
 
@@ -105,21 +135,17 @@ Full `scan` options:
 
 ## Interpreting Unauthorized-Access Results
 
-TraceSurface sends two kinds of inputs through the same unauthenticated replay pipeline:
+TraceSurface replays two kinds of requests: API candidates inferred from frontend source, and Fetch/XHR requests captured by the browser.
 
-1. API candidates inferred from frontend source.
-2. Real Fetch/XHR requests observed in an authenticated browser session.
+Replay keeps the URL, method, body, and Content-Type, but drops the browser's Cookie, Authorization, and other auth headers — what you get back is the unauthenticated view of the API. GET and POST are enabled by default; other methods require `--allow-destructive`.
 
-Real requests retain their method, body, and Content-Type, but captured authentication headers are never carried over. The report links the authenticated browser request to its unauthenticated replay, making it easy to prioritize endpoints that still return successful responses or sensitive data without credentials.
-
-> [!NOTE]
-> A `2xx` response means the endpoint remained reachable without the original authentication context; it is not automatically a vulnerability. Confirm the response content, business identity, and intended authorization boundary before reporting a finding.
+One thing to remember when reading results: HTTP 2xx does not imply business success. Many endpoints answer unauthenticated requests with 200 and `code: 401` in the body. Draw conclusions from the response content and the intended authorization boundary.
 
 ## Report Views
 
 | View | Purpose |
 | --- | --- |
-| **API Surface** | Resolved APIs, call sites, evidence tiers, and baseURL sources |
+| **API Surface** | Resolved frontend API candidates, call sites, evidence tiers, and baseURL sources |
 | **Verification** | Active replay requests, responses, status codes, and matches |
 | **Network** | Real browser Fetch/XHR traffic, initiator stacks, and linked unauthenticated replay |
 | **Secrets** | Sensitive information found in frontend artifacts, with context |
@@ -135,11 +161,11 @@ URL
                  └─ Replay   unauthenticated replay with evidence links
 ```
 
-TraceSurface does not treat browser capture and JavaScript static analysis as unrelated datasets. Runtime requests become evidence for static inference, while static call sites extend coverage beyond the paths exercised in one browser session.
+Runtime requests provide real URLs for static analysis, while static call sites cover APIs that one browser session did not trigger.
 
 ## Key Design: Stack-to-AST Alignment
 
-Network capture observes real requests but rarely explains which source expression initiated them. Static analysis finds API call sites but does not know their final runtime URLs. TraceSurface connects the two through the JavaScript initiator stack.
+Network capture knows where a request went; static analysis knows where it was written. TraceSurface connects them through the JavaScript initiator stack.
 
 ```mermaid
 flowchart LR
@@ -149,21 +175,20 @@ flowchart LR
     D --> E["Evidence-driven<br/>API Surface"]
 ```
 
-1. CDP records the script URL, line, and column of initiator frames for every real Fetch/XHR request.
-2. tree-sitter extracts API call sites with precise source spans.
-3. A frame and a call site are aligned when the frame coordinate falls inside the call-site span in the same script.
-4. Confirmed requests become the strongest evidence and anchor baseURL binding for unresolved static candidates.
+1. CDP records the script, line, and column for Fetch/XHR requests.
+2. tree-sitter extracts API call sites and source locations.
+3. A coordinate match marks the request as Confirmed and can provide a base URL for other call sites.
 
 ### Evidence Tiers
 
+Confirmed means a runtime request matched a source call site. L1–L4 describe the strength of other URL inferences.
+
 | Tier | Meaning |
 | --- | --- |
-| **L1 Full** | CDP-confirmed, uniquely identity-bound, or already a full URL in source |
-| **L2 Bound** | Bound through the client identity graph or deterministic bounded fan-out |
-| **L3 Global** | Falls back to base URLs already discovered on the site |
-| **L4 Origin** | Falls back to the target origin with the weakest evidence |
-
-Every non-L1 result carries `why_not_higher_tier`, explaining which stronger evidence was missing.
+| **L1 Full** | Unique binding, or a full URL already present in source |
+| **L2 Bound** | Bound through a client relationship or a limited candidate set |
+| **L3 Global** | Uses a base URL already found on the site |
+| **L4 Origin** | Falls back to the target origin |
 
 ## Data Directory
 
@@ -187,7 +212,7 @@ Data is stored in `~/.tracesurface/` by default. Set `TRACESURFACE_HOME` to use 
 
 ## Safety and Authorization
 
-Use TraceSurface only on targets you own or are explicitly authorized to assess. Scans perform active replay by default, and `POST` or unknown methods may change data on the target system. Use `--no-replay` when verification is not required.
+Use TraceSurface only on targets you own or are explicitly authorized to assess. Scans send GET and POST requests by default; `--allow-destructive` enables other methods. Use `--no-replay` when verification is not required.
 
 ## License
 
