@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from functools import partial
 from pathlib import Path
 from typing import Any
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 import typer
 

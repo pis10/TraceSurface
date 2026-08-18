@@ -38,8 +38,6 @@ Issues = "https://github.com/pis10/TraceSurface/issues"
 "tracesurface/server/static" = "tracesurface/server/static"
 
 [tool.hatch.build.targets.wheel]
-# 前端产物被 .gitignore 排除，用 artifacts 显式纳入 wheel；目录不存在时静默跳过，
-# 保证全新克隆（未构建前端）也能 uv sync
 artifacts = ["tracesurface/server/static/**"]
 
 [dependency-groups]
