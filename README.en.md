@@ -60,25 +60,28 @@ The result goes far beyond captcha and login — roles, menus, departments, dict
 
 ## Quick Start
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Download the v1.0.5 archive for your platform from GitHub Releases:
 
-Install from the GitHub Release wheel (no Node.js needed):
+| Platform | Download |
+| --- | --- |
+| Windows x64 | [tracesurface-windows-x86_64.zip](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-windows-x86_64.zip) |
+| macOS Apple Silicon | [tracesurface-macos-arm64.tar.gz](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-macos-arm64.tar.gz) |
+| Linux x64 | [tracesurface-linux-x86_64.tar.gz](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-linux-x86_64.tar.gz) |
+
+Extract it and run the binary from its directory:
 
 ```bash
-uv tool install https://github.com/pis10/TraceSurface/releases/download/v1.0.0/tracesurface-1.0.0-py3-none-any.whl
-tracesurface install-browser   # first run only, downloads Chromium
+# macOS / Linux
+./tracesurface scan https://target.example
+
+# Windows PowerShell
+.\tracesurface.exe scan https://target.example
 ```
 
-Scan a target:
+The first scan downloads Chromium automatically, and later scans reuse it. Start the local report:
 
 ```bash
-tracesurface scan https://target.example
-```
-
-Start the local report:
-
-```bash
-tracesurface serve
+./tracesurface serve
 ```
 
 ![Local report server](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-serve.png)
@@ -88,7 +91,7 @@ Open `http://127.0.0.1:8765` in your browser.
 For discovery without active replay:
 
 ```bash
-tracesurface scan https://target.example --no-replay
+./tracesurface scan https://target.example --no-replay
 ```
 
 <details>
@@ -101,7 +104,6 @@ git clone https://github.com/pis10/TraceSurface.git
 cd TraceSurface
 
 uv sync
-uv run playwright install chromium
 
 cd frontend
 npm ci
@@ -199,6 +201,7 @@ Data is stored in `~/.tracesurface/` by default. Set `TRACESURFACE_HOME` to use 
 ├── tracesurface.db
 ├── responses/
 ├── sources/
+├── browsers/
 └── auth.json
 ```
 
