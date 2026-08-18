@@ -14,7 +14,11 @@ from tracesurface.auth import (
     load_auth_state,
     save_login_state,
 )
-from tracesurface.browser import chromium_is_installed, install_chromium
+from tracesurface.browser import (
+    chromium_is_installed,
+    install_chromium,
+    system_chrome_path,
+)
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.pipeline.messages import ScanOutput
 from tracesurface.pipeline.runner import PipelineRunner, ScanRequest
@@ -114,6 +118,9 @@ def _read_targets(file: Path | None, url: str | None) -> list[str]:
 
 
 def _ensure_browser() -> None:
+    if system_chrome_path() is not None:
+        return
+
     try:
         if chromium_is_installed():
             return

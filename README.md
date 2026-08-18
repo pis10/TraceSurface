@@ -78,7 +78,7 @@ tracesurface scan https://vue.ruoyi.vip/login
 .\tracesurface.exe scan https://target.example
 ```
 
-首次扫描会自动下载 Chromium，之后直接复用。启动本地报告：
+TraceSurface 优先使用本机 Google Chrome。未检测到 Chrome 时，首次扫描会自动下载 Chromium 到 `~/.tracesurface/browsers/`。启动本地报告：
 
 ```bash
 ./tracesurface serve

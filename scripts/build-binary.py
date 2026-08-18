@@ -39,7 +39,6 @@ def main() -> None:
         "--python-flag=-m",
         "--assume-yes-for-downloads",
         "--playwright-include-browser=none",
-        f"--onefile-tempdir-spec={{CACHE_DIR}}/TraceSurface/{__version__}",
         f"--output-dir={OUTPUT_DIR}",
         "--output-filename=tracesurface",
         "--include-data-dir=tracesurface/server/static=tracesurface/server/static",

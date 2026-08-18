@@ -78,7 +78,7 @@ Extract it and run the binary from its directory:
 .\tracesurface.exe scan https://target.example
 ```
 
-The first scan downloads Chromium automatically, and later scans reuse it. Start the local report:
+TraceSurface prefers the locally installed Google Chrome. When Chrome is unavailable, the first scan downloads Chromium to `~/.tracesurface/browsers/`. Start the local report:
 
 ```bash
 ./tracesurface serve

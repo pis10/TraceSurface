@@ -1,13 +1,38 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from playwright._impl._driver import compute_driver_executable, get_driver_env
 from playwright.sync_api import sync_playwright
 
 from tracesurface.storage.sqlite.connection import get_home
+
+
+def system_chrome_path() -> Path | None:
+    if sys.platform == "darwin":
+        candidates = [
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path.home()
+            / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+        names = ("google-chrome",)
+    elif sys.platform == "win32":
+        candidates = [
+            Path(root) / "Google/Chrome/Application/chrome.exe"
+            for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")
+            if (root := os.environ.get(key))
+        ]
+        names = ("chrome", "google-chrome")
+    else:
+        candidates = [Path("/opt/google/chrome/chrome")]
+        names = ("google-chrome-stable", "google-chrome")
+
+    candidates.extend(Path(path) for name in names if (path := shutil.which(name)))
+    return next((path for path in candidates if path.is_file()), None)
 
 
 def configure_browser_path() -> None:
