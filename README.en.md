@@ -97,18 +97,13 @@ For discovery without active replay:
 <details>
 <summary>Install from source</summary>
 
-Requires Python 3.12, uv, and Node.js 20+.
+Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/pis10/TraceSurface.git
 cd TraceSurface
 
 uv sync
-
-cd frontend
-npm ci
-npm run build   # output goes to tracesurface/server/static
-cd ..
 ```
 
 Then run everything with `uv run tracesurface ...`.
@@ -201,7 +196,8 @@ Data is stored in `~/.tracesurface/` by default. Set `TRACESURFACE_HOME` to use 
 ├── tracesurface.db
 ├── responses/
 ├── sources/
-├── browsers/
+├── logs/
+├── browsers/       # fallback Chromium, created when needed
 └── auth.json
 ```
 

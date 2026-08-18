@@ -97,18 +97,13 @@ TraceSurface 优先使用本机 Google Chrome。未检测到 Chrome 时，首次
 <details>
 <summary>从源码安装</summary>
 
-要求 Python 3.12、uv 和 Node.js 20+。
+要求 Python 3.12 和 [uv](https://docs.astral.sh/uv/)。
 
 ```bash
 git clone https://github.com/pis10/TraceSurface.git
 cd TraceSurface
 
 uv sync
-
-cd frontend
-npm ci
-npm run build   # 产物输出到 tracesurface/server/static
-cd ..
 ```
 
 之后用 `uv run tracesurface ...` 运行。
@@ -201,7 +196,8 @@ Confirmed 表示运行时请求已命中源码调用点；L1–L4 表示其他 U
 ├── tracesurface.db
 ├── responses/
 ├── sources/
-├── browsers/
+├── logs/
+├── browsers/       # 备用 Chromium（按需）
 └── auth.json
 ```
 
