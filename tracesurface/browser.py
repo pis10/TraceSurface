@@ -32,7 +32,13 @@ def system_chrome_path() -> Path | None:
         names = ("google-chrome-stable", "google-chrome")
 
     candidates.extend(Path(path) for name in names if (path := shutil.which(name)))
-    return next((path for path in candidates if path.is_file()), None)
+    for path in candidates:
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            continue
+    return None
 
 
 def configure_browser_path() -> Path:
