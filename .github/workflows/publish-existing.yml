@@ -1,0 +1,44 @@
+name: Publish existing release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Build workflow run ID
+        required: true
+        type: string
+      tag:
+        description: Release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download release artifacts
+        env:
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          mkdir -p release
+          for asset in \
+            tracesurface-windows-x86_64.zip \
+            tracesurface-macos-arm64.tar.gz \
+            tracesurface-linux-x86_64.tar.gz
+          do
+            gh run download "$SOURCE_RUN_ID" --name "$asset" --dir release
+          done
+      - name: Create checksums
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS
+      - name: Publish release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release create "$RELEASE_TAG" release/* --generate-notes --verify-tag
