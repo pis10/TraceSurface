@@ -6,11 +6,11 @@ from tracesurface.browser import configure_browser_path, system_chrome_path
 
 
 async def launch_browser(playwright: Playwright, *, headless: bool = True) -> Browser:
-    configure_browser_path()
     chrome = system_chrome_path()
     if chrome is not None:
         return await playwright.chromium.launch(
             headless=headless,
             executable_path=str(chrome),
         )
+    configure_browser_path()
     return await playwright.chromium.launch(headless=headless, channel="chromium")

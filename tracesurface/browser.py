@@ -35,10 +35,10 @@ def system_chrome_path() -> Path | None:
     return next((path for path in candidates if path.is_file()), None)
 
 
-def configure_browser_path() -> None:
+def configure_browser_path() -> Path:
     path = get_home() / "browsers"
-    path.mkdir(exist_ok=True)
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(path)
+    return path
 
 
 def chromium_is_installed() -> bool:
@@ -49,7 +49,7 @@ def chromium_is_installed() -> bool:
 
 
 def install_chromium() -> None:
-    configure_browser_path()
+    configure_browser_path().mkdir(exist_ok=True)
     driver, cli = compute_driver_executable()
     subprocess.run(
         [driver, cli, "install", "--no-shell", "chromium"],
