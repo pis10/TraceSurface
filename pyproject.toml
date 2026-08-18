@@ -41,7 +41,7 @@ Issues = "https://github.com/pis10/TraceSurface/issues"
 artifacts = ["tracesurface/server/static/**"]
 
 [dependency-groups]
-dev = [
+lint = [
     "basedpyright>=1.29.0",
 ]
 
