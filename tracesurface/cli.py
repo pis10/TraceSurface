@@ -4,12 +4,13 @@ import asyncio
 import sys
 import time
 from functools import partial
+from io import TextIOWrapper
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    cast(TextIOWrapper, sys.stdout).reconfigure(encoding="utf-8")
+    cast(TextIOWrapper, sys.stderr).reconfigure(encoding="utf-8")
 
 import typer
 
