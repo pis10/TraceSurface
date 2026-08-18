@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from functools import partial
+from io import TextIOWrapper
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+if sys.platform == "win32":
+    cast(TextIOWrapper, sys.stdout).reconfigure(encoding="utf-8")
+    cast(TextIOWrapper, sys.stderr).reconfigure(encoding="utf-8")
 
 import typer
 
@@ -13,6 +19,11 @@ from tracesurface.auth import (
     auth_state_age,
     load_auth_state,
     save_login_state,
+)
+from tracesurface.browser import (
+    chromium_is_installed,
+    install_chromium,
+    system_chrome_path,
 )
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.pipeline.messages import ScanOutput
@@ -110,6 +121,24 @@ def _read_targets(file: Path | None, url: str | None) -> list[str]:
     if not urls:
         ui.abort("没有有效的 URL")
     return urls
+
+
+def _ensure_browser() -> None:
+    if system_chrome_path() is not None:
+        return
+
+    try:
+        if chromium_is_installed():
+            return
+    except Exception as e:
+        ui.abort(f"无法检查 Chromium：{e}")
+
+    ui.notice("首次使用，正在下载 Chromium")
+    try:
+        install_chromium()
+    except Exception as e:
+        ui.abort(f"Chromium 下载失败：{e}")
+    ui.success("Chromium 已就绪")
 
 
 @app.command(short_help="扫描站点，发现 API 并发包验证")
@@ -234,6 +263,7 @@ def scan(
 
     collection_workers = min(site_concurrency, len(urls))
     auth_state, auth_label = _resolve_auth(auth, no_auth)
+    _ensure_browser()
 
     render_scan_header(
         urls=urls,
@@ -304,6 +334,7 @@ def login(
 ) -> None:
     out_path = output if output is not None else auth_path()
     ui.brand("登录态采集")
+    _ensure_browser()
 
     def warn_goto(exc: Exception) -> None:
         ui.warn(f"打开页面失败（{ui.escape(str(exc))}），浏览器仍打开，可手动输入地址")
@@ -334,18 +365,13 @@ def login(
 
 @app.command(short_help="下载扫描所需的 Chromium 浏览器（仅首次需要）")
 def install_browser() -> None:
-    import subprocess
-    import sys
-
     ui.brand("浏览器安装")
     ui.notice("下载 Playwright Chromium，仅在首次使用或升级 Playwright 后需要")
 
     try:
-        subprocess.run(
-            [sys.executable, "-m", "playwright", "install", "chromium"], check=True
-        )
-    except subprocess.CalledProcessError as e:
-        ui.abort(f"Chromium 下载失败（exit {e.returncode}），请检查网络后重试")
+        install_chromium()
+    except Exception as e:
+        ui.abort(f"Chromium 下载失败：{e}")
 
     ui.success("Chromium 已就绪")
 

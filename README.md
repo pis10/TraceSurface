@@ -60,25 +60,28 @@ tracesurface scan https://vue.ruoyi.vip/login
 
 ## 快速开始
 
-要求 Python 3.12+ 和 [uv](https://docs.astral.sh/uv/)。
+从 GitHub Release 下载对应平台的 v1.0.5 压缩包：
 
-从 GitHub Release 安装（无需 Node.js）：
+| 平台 | 下载 |
+| --- | --- |
+| Windows x64 | [tracesurface-windows-x86_64.zip](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-windows-x86_64.zip) |
+| macOS Apple Silicon | [tracesurface-macos-arm64.tar.gz](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-macos-arm64.tar.gz) |
+| Linux x64 | [tracesurface-linux-x86_64.tar.gz](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-linux-x86_64.tar.gz) |
+
+解压后，在文件所在目录运行：
 
 ```bash
-uv tool install https://github.com/pis10/TraceSurface/releases/download/v1.0.0/tracesurface-1.0.0-py3-none-any.whl
-tracesurface install-browser   # 仅首次需要，下载 Chromium
+# macOS / Linux
+./tracesurface scan https://target.example
+
+# Windows PowerShell
+.\tracesurface.exe scan https://target.example
 ```
 
-扫描目标站点：
+TraceSurface 优先使用本机 Google Chrome。未检测到 Chrome 时，首次扫描会自动下载 Chromium 到 `~/.tracesurface/browsers/`。启动本地报告：
 
 ```bash
-tracesurface scan https://target.example
-```
-
-启动本地报告：
-
-```bash
-tracesurface serve
+./tracesurface serve
 ```
 
 ![启动本地报告](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-serve.png)
@@ -88,25 +91,19 @@ tracesurface serve
 只想发现 API、不执行主动重放：
 
 ```bash
-tracesurface scan https://target.example --no-replay
+./tracesurface scan https://target.example --no-replay
 ```
 
 <details>
 <summary>从源码安装</summary>
 
-要求 Python 3.12、uv 和 Node.js 20+。
+要求 Python 3.12 和 [uv](https://docs.astral.sh/uv/)。
 
 ```bash
 git clone https://github.com/pis10/TraceSurface.git
 cd TraceSurface
 
 uv sync
-uv run playwright install chromium
-
-cd frontend
-npm ci
-npm run build   # 产物输出到 tracesurface/server/static
-cd ..
 ```
 
 之后用 `uv run tracesurface ...` 运行。
@@ -199,6 +196,8 @@ Confirmed 表示运行时请求已命中源码调用点；L1–L4 表示其他 U
 ├── tracesurface.db
 ├── responses/
 ├── sources/
+├── logs/
+├── browsers/       # 备用 Chromium（按需）
 └── auth.json
 ```
 
