@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,9 +33,7 @@ EVENT_FORMATTERS: dict[str, Callable[[EventPayload], str]] = {
     "explorer_exception": (
         lambda payload: f"采集模块 {payload['explorer']} 异常，已跳过"
     ),
-    "cdp_budget_timeout": lambda _payload: "首屏等待到时，已使用已捕获数据继续",
     "cdp_collection_error": _format_cdp_collection_error,
-    "auth_export_failed": lambda _payload: "登录态导出失败，后续批次可能使用过期凭据",
 }
 
 
@@ -67,7 +66,6 @@ class DiscoverySession:
     routes_visited: set[str] = field(default_factory=set)
     json_response_bodies: dict[str, str] = field(default_factory=dict)
     cache: DiscoveryCache = field(default_factory=DiscoveryCache)
-    auth_state: dict[str, Any] | None = None
     warnings: list[ScanWarning] = field(default_factory=list)
 
     @property
@@ -119,8 +117,13 @@ class DiscoverySession:
                 added.add(url)
         return added
 
-    def add_js_source(self, url: str, source: str) -> SourceRef:
-        ref = store_source(
+    async def add_js_source(self, url: str, source: str) -> SourceRef:
+        existing = self.facts.js_sources.get(url)
+        if existing is not None:
+            return existing
+
+        ref = await asyncio.to_thread(
+            store_source,
             self.source_scope,
             "js",
             url,
@@ -151,7 +154,7 @@ class DiscoverySession:
                 added.add(route)
         return added
 
-    def add_html_source(
+    async def add_html_source(
         self,
         url: str,
         html: str,
@@ -159,7 +162,8 @@ class DiscoverySession:
         source: str,
         bootstrap: bool = False,
     ) -> bool:
-        ref = store_source(
+        ref = await asyncio.to_thread(
+            store_source,
             self.source_scope,
             "html",
             url,
@@ -193,23 +197,6 @@ class DiscoverySession:
         cdp_result: CDPResult,
         **payload,
     ) -> None:
-        if phase == "bootstrap" and (
-            cdp_result.timed_out or cdp_result.timeout_reasons
-        ):
-            self.record_event(
-                "cdp_budget_timeout",
-                phase=phase,
-                reasons=cdp_result.timeout_reasons,
-                unique_activity_count=cdp_result.unique_activity_count,
-                last_activity_age_ms=cdp_result.last_activity_age_ms,
-                js_count=len(cdp_result.js_urls),
-                request_count=len(cdp_result.requests),
-                body_tasks=cdp_result.pending_body_task_count,
-                unfinished_body_tasks=cdp_result.unfinished_body_task_count,
-                html_captured=bool(cdp_result.html_content),
-                **payload,
-            )
-
         if cdp_result.collection_error:
             self.record_event(
                 "cdp_collection_error",

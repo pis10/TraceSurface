@@ -26,8 +26,7 @@ _STATUS_STYLE = {
 
 _STAGE_CN = {
     "collect": "采集",
-    "extraction": "提取",
-    "inference": "推导",
+    "analysis": "分析",
     "storage": "落库",
 }
 
@@ -38,9 +37,8 @@ _HOST_MAX = 40
 def render_scan_header(
     *,
     urls: Sequence[str],
-    collection_workers: int,
-    extraction_workers: int,
-    inference_workers: int,
+    site_concurrency: int,
+    cpu_workers: int,
     replay_concurrency: int,
     replay_opt: bool,
     auth_label: str,
@@ -52,16 +50,15 @@ def render_scan_header(
     replay_part = _metric("发包", replay_concurrency if replay_opt else "关闭")
     pipeline = ui.join_dot(
         [
-            _metric("采集", collection_workers),
-            _metric("提取", extraction_workers),
-            _metric("推导", inference_workers),
+            _metric("站点", site_concurrency),
+            _metric("CPU", cpu_workers),
             replay_part,
         ]
     )
     ui.kv_block(
         [
             ("目标", target),
-            ("流水线", pipeline),
+            ("并发", pipeline),
             ("登录态", auth_label),
         ]
     )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -26,28 +25,25 @@ async def validate_urls(
 
     validated: set[str] = set()
 
-    semaphore = asyncio.Semaphore(DEFAULT_SETTINGS.collection.mfe_validate_concurrency)
-
     async def _check(url: str):
-        async with semaphore:
-            try:
-                async with http_client.stream(
-                    "GET",
-                    url,
-                    timeout=DEFAULT_SETTINGS.collection.mfe_validate_timeout_s,
-                    follow_redirects=True,
-                ) as resp:
-                    if resp.status_code == 200:
-                        ct = resp.headers.get("content-type", "")
-                        if "html" not in ct:
-                            validated.add(url)
+        try:
+            async with http_client.stream(
+                "GET",
+                url,
+                timeout=DEFAULT_SETTINGS.collection.mfe_validate_timeout_s,
+                follow_redirects=True,
+            ) as resp:
+                if resp.status_code == 200:
+                    ct = resp.headers.get("content-type", "")
+                    if "html" not in ct:
+                        validated.add(url)
 
-            except HttpClientTimeoutError:
-                pass
-            except Exception:
-                pass
+        except HttpClientTimeoutError:
+            pass
+        except Exception:
+            pass
 
-    await asyncio.gather(*[_check(url) for url in candidates])
+    await http_client.map(candidates, _check)
     return validated
 
 

@@ -19,7 +19,7 @@ from tracesurface.collection.artifacts.micro_frontend.signal_e import (
     LoaderTemplate,
     detect_script_injection_loaders,
 )
-from tracesurface.jsast import extract_string, node_text, parse_js, walk_pre_iter
+from tracesurface.jsast import extract_string, node_text, walk_pre_iter
 
 _MIN_SEED_OVERLAP = 2
 
@@ -129,11 +129,3 @@ def scan_source_tree(tree_root: Node) -> SourceScan:
         string_arrays=_collect_string_arrays(tree_root),
         route_literals=_collect_route_literals(tree_root),
     )
-
-
-def scan_one_source(src: str) -> SourceScan | None:
-    try:
-        tree_root = parse_js(src).root_node
-    except Exception:
-        return None
-    return scan_source_tree(tree_root)

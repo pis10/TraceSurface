@@ -41,6 +41,7 @@ class CDPRequest:
 class CDPResult:
     target_url: str = ""
     js_urls: set[str] = field(default_factory=set)
+    js_sources: dict[str, str] = field(default_factory=dict)
     requests: list[CDPRequest] = field(default_factory=list)
     html_content: str = ""
     json_response_bodies: dict[str, str] = field(default_factory=dict)
@@ -48,10 +49,6 @@ class CDPResult:
     dropped_no_stack_samples: list[str] = field(default_factory=list)
     timed_out: bool = False
     timeout_reasons: list[str] = field(default_factory=list)
-    unique_activity_count: int = 0
-    last_activity_age_ms: int = 0
-    pending_body_task_count: int = 0
-    unfinished_body_task_count: int = 0
     collection_error: str = ""
 
 

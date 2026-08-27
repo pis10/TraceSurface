@@ -46,3 +46,10 @@ def match_qiankun_schema_in_json(body: str) -> list[AppConfig]:
                     }
                 )
     return found
+
+
+def match_qiankun_bodies(bodies: tuple[str, ...]) -> list[AppConfig]:
+    found: list[AppConfig] = []
+    for body in bodies:
+        found.extend(match_qiankun_schema_in_json(body))
+    return found

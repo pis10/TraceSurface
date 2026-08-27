@@ -9,6 +9,7 @@ import httpx
 
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.frozen import to_jsonable
+from tracesurface.http import StatelessAsyncClient
 from tracesurface.models import ReplayRecord, ReplayRequest
 from tracesurface.policies import ResponseCapturePolicy
 
@@ -99,12 +100,18 @@ class HTTPTransport:
         timeout: float = DEFAULT_SETTINGS.replay.timeout_s,
         max_redirects: int = DEFAULT_SETTINGS.replay.max_redirects,
         verify: bool = DEFAULT_SETTINGS.http.tls_verify,
+        max_connections: int = DEFAULT_SETTINGS.replay.concurrency,
     ) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
+        concurrency = max(1, max_connections)
+        return StatelessAsyncClient(
             timeout=timeout,
             follow_redirects=True,
             max_redirects=max_redirects,
             verify=verify,
+            limits=httpx.Limits(
+                max_connections=concurrency,
+                max_keepalive_connections=concurrency,
+            ),
         )
 
     async def send(

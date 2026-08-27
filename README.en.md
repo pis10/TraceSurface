@@ -2,9 +2,7 @@
 
 # TraceSurface
 
-**Find the APIs hiding in frontend code. Verify unauthorized access.**
-
-Dynamic browser tracing meets JavaScript AST analysis. Traffic and source confirm each other — one URL in, the full frontend API surface out.
+**Dynamic browser tracing × JavaScript AST analysis. Reconstruct the complete API surface from JavaScript.**
 
 [Quick Start](#quick-start) · [Case Study](#case-study-login-page-only) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
 
@@ -15,11 +13,13 @@ Dynamic browser tracing meets JavaScript AST analysis. Traffic and source confir
 
 </div>
 
-TraceSurface is built for penetration testing, security assessment, and API inventory. It collects frontend assets in a real browser, pulls API call sites out of JavaScript with tree-sitter, and resolves final URLs against real requests captured over CDP. The two signals complete each other: what the traffic never triggered, the source still reveals; what the source can't fully resolve, the traffic pins down. Candidates are then replayed without browser credentials to check for missing or weak authorization.
+TraceSurface is built for penetration testing, security assessment, and API inventory. Starting from one URL, it traces runtime traffic in a real browser while parsing JavaScript ASTs across entry scripts, lazy chunks, and micro-frontends. Initiator coordinates pin real requests back to source call sites, recovering base URLs and complete endpoints. TraceSurface then strips browser credentials and replays those requests to expose missing or weak authorization.
+
+**Core principle: runtime requests confirm; static analysis expands. Every API carries evidence, and every inference tier has a reason.**
 
 ## Case Study: Login Page Only
 
-Take the official RuoYi Vue demo. The entry point is the login page — no credentials, no clicking into the admin UI:
+Give TraceSurface only the official RuoYi Vue login page — no credentials, no access to the admin UI:
 
 ```bash
 tracesurface scan https://vue.ruoyi.vip/login
@@ -27,21 +27,21 @@ tracesurface scan https://vue.ruoyi.vip/login
 
 ![RuoYi demo login page](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/ruoyi-login.jpg)
 
-The login page requests `GET /prod-api/captchaImage` on its own. TraceSurface aligns that request with the `/captchaImage` call site in `app.js`, confirms `/prod-api` as the API prefix, and keeps digging through entry scripts and webpack lazy chunks:
+The page triggers only `GET /prod-api/captchaImage`, but that single request provides the decisive coordinates. TraceSurface aligns it precisely with the `/captchaImage` call site in `app.js`, establishes `/prod-api` as the prefix, then traverses the webpack entry and lazy chunks to recover APIs used only after login:
 
 ![Scan of the RuoYi demo](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/scan-ruoyi.png)
 
-About 61 seconds later:
+89.2 seconds later, one login page has unfolded into the complete frontend API surface:
 
 | Metric | Result |
 | --- | --- |
 | AST call sites | 316 (before dedup) |
-| Resolved APIs | 135 (1 Confirmed, 134 across L1–L4) |
+| Recovered APIs | 135 (1 confirmed, 0 CDP-only, 134 across L1–L4) |
 | Frontend routes | 19 found, 19 visited |
 | Requests replayed | 92 (88 2xx, 4 4xx) |
 | Secret matches | 1 |
 
-The result goes far beyond captcha and login — roles, menus, departments, dictionaries, monitoring, AI conversations: the admin modules' APIs all come back from a single login page.
+One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, monitoring, AI conversations — backend endpoints never triggered by the current page emerge directly from the frontend code.
 
 ![Report: APIs recovered from the login page](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
 
@@ -50,25 +50,17 @@ The result goes far beyond captcha and login — roles, menus, departments, dict
 
 ## Capabilities
 
-- **Real browser collection**: captures Fetch/XHR, initiator stacks, scripts, routes, and micro-frontend entries — everything the browser sees.
-- **AST extraction**: parses JavaScript with tree-sitter to recognize `fetch`, XHR, axios, custom wrappers, and gateway calls.
-- **Lazy-chunk discovery**: reads webpack / Vite chunk maps and fetches business chunks directly instead of waiting for the page to trigger them.
-- **Runtime calibration**: aligns CDP initiator stacks with source call sites to confirm requests and infer base URLs.
-- **Evidence tiers**: labels inferred URLs from L1 to L4, so every conclusion carries its own justification.
-- **Credential-free replay**: resends requests without Cookie, Authorization, or other browser headers — the attacker's view of the API.
-- **Local report**: APIs, real traffic, replay results, and secret matches in one local UI.
+- **Real browser tracing**: captures Fetch/XHR, initiator stacks, scripts, routes, and micro-frontend entries as runtime evidence.
+- **JavaScript AST extraction**: recognizes `fetch`, XHR, axios, custom wrappers, and gateway calls to recover endpoints the page never triggered.
+- **Lazy-chunk traversal**: reconstructs webpack / Vite chunk maps and expands business code without waiting for manual navigation.
+- **Stack-to-AST alignment**: binds CDP initiator coordinates to source call sites, confirming requests and recovering base URLs.
+- **Evidence-driven inference**: grades URL derivations from L1 to L4, with every result traceable to evidence.
+- **Credential-free verification**: strips Cookie, Authorization, and other credentials before replaying requests to expose authorization gaps.
+- **Local report**: API Surface, runtime traffic, verification results, and secret matches in one place.
 
 ## Quick Start
 
-Download the v1.0.5 archive for your platform from GitHub Releases:
-
-| Platform | Download |
-| --- | --- |
-| Windows x64 | [tracesurface-windows-x86_64.zip](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-windows-x86_64.zip) |
-| macOS Apple Silicon | [tracesurface-macos-arm64.tar.gz](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-macos-arm64.tar.gz) |
-| Linux x64 | [tracesurface-linux-x86_64.tar.gz](https://github.com/pis10/TraceSurface/releases/download/v1.0.5/tracesurface-linux-x86_64.tar.gz) |
-
-Extract it and run the binary from its directory:
+Download the archive for your platform from [GitHub Releases](https://github.com/pis10/TraceSurface/releases). Extract it and run the binary from its directory:
 
 ```bash
 # macOS / Linux
@@ -110,8 +102,6 @@ Then run everything with `uv run tracesurface ...`.
 
 </details>
 
-![Command overview](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-help.png)
-
 ## Common Workflows
 
 | Scenario | Command |
@@ -126,9 +116,7 @@ Then run everything with `uv run tracesurface ...`.
 
 `login` stores Playwright `storage_state` and optional `sessionStorage` in `~/.tracesurface/auth.json`. Later scans load it automatically.
 
-Full `scan` options:
-
-![Full scan options](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-scan-help.png)
+Run `tracesurface scan --help` for the complete option list.
 
 ## Interpreting Unauthorized-Access Results
 
@@ -149,20 +137,11 @@ One thing to remember when reading results: HTTP 2xx does not imply business suc
 
 ## How It Works
 
-```text
-URL
- └─ Collection   browser / CDP / routes / frontend artifacts / micro-frontends
-     └─ Extraction   JavaScript / HTML AST → request, base, alias, and secret facts
-         └─ Inference   runtime alignment / value graph / client identity graph → L1–L4
-             └─ Storage   SQLite evidence model
-                 └─ Replay   unauthenticated replay with evidence links
-```
+TraceSurface fuses runtime traffic and static call sites into one evidence chain: the browser pins down real URLs, the AST expands untriggered endpoints, and initiator coordinates bind the two together.
 
-Runtime requests provide real URLs for static analysis, while static call sites cover APIs that one browser session did not trigger.
+### Stack-to-AST Alignment
 
-## Key Design: Stack-to-AST Alignment
-
-Network capture knows where a request went; static analysis knows where it was written. TraceSurface connects them through the JavaScript initiator stack.
+Every browser request carries its initiating script, line, and column; every AST call site has a matching source span. Once the coordinates hit, the runtime request and source call site become one confirmed API record.
 
 ```mermaid
 flowchart LR

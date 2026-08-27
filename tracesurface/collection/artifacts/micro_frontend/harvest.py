@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from urllib.parse import urljoin, urlparse
 
@@ -13,7 +12,7 @@ from tracesurface.collection.artifacts.micro_frontend.common import (
     _is_valid_app_name,
     is_strict_identifier,
 )
-from tracesurface.collection.deps import HttpClientTimeoutError, HttpTextClient
+from tracesurface.collection.deps import CpuPort, HttpClientTimeoutError, HttpTextClient
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.jsast import (
     extract_literal_value,
@@ -212,6 +211,7 @@ async def harvest_identifiers(
     cdp_response_bodies: dict[str, str],
     target_url: str,
     http_client: HttpTextClient,
+    cpu: CpuPort,
     cache: dict[str, set[str]] | None = None,
 ) -> set[str]:
     identifiers: set[str] = set()
@@ -223,7 +223,7 @@ async def harvest_identifiers(
             if cached is not None:
                 identifiers |= cached
                 continue
-        ids = harvest_identifiers_from_body(body)
+        ids = await cpu.run(harvest_identifiers_from_body, body)
         if len(ids) > DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body:
             ids = set(
                 sorted(ids)[: DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body]
@@ -240,8 +240,6 @@ async def harvest_identifiers(
             urls_to_fetch.add(u)
 
     if urls_to_fetch:
-        sem = asyncio.Semaphore(DEFAULT_SETTINGS.collection.mfe_validate_concurrency)
-
         async def _fetch_and_harvest(url: str) -> set[str]:
             if cache is not None:
                 ckey = f"http:{_absolutize_url(url, target_url)}"
@@ -255,42 +253,42 @@ async def harvest_identifiers(
                 else urljoin(target_url, url)
             )
 
-            async with sem:
-                try:
-                    resp = await http_client.get(
-                        abs_url,
-                        timeout=DEFAULT_SETTINGS.collection.mfe_validate_timeout_s,
-                        follow_redirects=True,
-                    )
+            try:
+                resp = await http_client.get(
+                    abs_url,
+                    timeout=DEFAULT_SETTINGS.collection.mfe_validate_timeout_s,
+                    follow_redirects=True,
+                )
 
-                    if resp.status_code != 200:
-                        result: set[str] = set()
-                    elif (
-                        len(resp.content)
-                        > DEFAULT_SETTINGS.collection.response_body_capture_limit
+                if resp.status_code != 200:
+                    result: set[str] = set()
+                elif (
+                    len(resp.content)
+                    > DEFAULT_SETTINGS.collection.response_body_capture_limit
+                ):
+                    result = set()
+                else:
+                    text = await http_client.text(resp)
+                    result = await cpu.run(harvest_identifiers_from_body, text)
+                    if (
+                        len(result)
+                        > DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body
                     ):
-                        result = set()
-                    else:
-                        result = harvest_identifiers_from_body(resp.text)
-                        if (
-                            len(result)
-                            > DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body
-                        ):
-                            result = set(
-                                sorted(result)[
-                                    : DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body
-                                ]
-                            )
+                        result = set(
+                            sorted(result)[
+                                : DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body
+                            ]
+                        )
 
-                except HttpClientTimeoutError:
-                    result = set()
-                except Exception:
-                    result = set()
+            except HttpClientTimeoutError:
+                result = set()
+            except Exception:
+                result = set()
             if cache is not None:
                 cache[f"http:{_absolutize_url(url, target_url)}"] = result
             return result
 
-        batches = await asyncio.gather(*[_fetch_and_harvest(u) for u in urls_to_fetch])
+        batches = await http_client.map(urls_to_fetch, _fetch_and_harvest)
         for ids in batches:
             identifiers |= ids
 

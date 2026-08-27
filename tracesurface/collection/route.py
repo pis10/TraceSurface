@@ -10,7 +10,6 @@ from tracesurface.jsast import (
     extract_string,
     get_object_props,
     node_text,
-    parse_js,
     walk_pre_iter,
 )
 
@@ -239,13 +238,6 @@ def extract_route_sets_from_tree(
     _visit_routes(tree_root, router_routes, named_routes)
     _visit_w3c_nav(tree_root, w3c_routes)
     return router_routes, named_routes, w3c_routes
-
-
-def extract_route_sets(source: str) -> tuple[set[str], set[str], set[str]]:
-    tree = parse_js(source)
-    return extract_route_sets_from_tree(tree.root_node)
-
-
 def build_route_url(target_url: str, route: str, hash_prefix: str) -> str:
     parsed = urlparse(target_url)
 

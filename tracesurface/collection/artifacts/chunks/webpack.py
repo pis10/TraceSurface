@@ -5,13 +5,10 @@ import re
 
 from tree_sitter import Node
 
-from tracesurface.collection.artifacts.chunks.evaluator import ChunkEvaluator
 from tracesurface.collection.artifacts.chunks.types import (
-    ChunkContext,
-    ChunkResult,
+    ChunkEvalPlan,
     SourceDocument,
 )
-from tracesurface.collection.artifacts.chunks.url_builder import absolute_chunk_url
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.jsast import node_text, parse_js, walk_first_match, walk_pre_iter
 
@@ -144,48 +141,31 @@ def _chunk_function(source: str, chunk_loader: Node, src_expr: Node) -> str:
     return f"function({param_name}) {{ return {expr_code}; }}"
 
 
-class WebpackChunkStrategy:
-    name = "webpack"
+def build_webpack_eval_plan(source: SourceDocument) -> ChunkEvalPlan | None:
+    if WEBPACK_FINGERPRINT not in source.text:
+        return None
 
-    def __init__(self, evaluator: ChunkEvaluator | None = None) -> None:
-        self.evaluator = evaluator or ChunkEvaluator()
+    tree_root = source.tree_root
+    if tree_root is None:
+        tree_root = parse_js(source.text).root_node
 
-    def supports(self, source: SourceDocument) -> bool:
-        return WEBPACK_FINGERPRINT in source.text
+    loading_node = find_string_node(tree_root, WEBPACK_FINGERPRINT)
+    if not loading_node:
+        return None
 
-    async def discover(
-        self,
-        source: SourceDocument,
-        ctx: ChunkContext,
-    ) -> ChunkResult:
-        tree_root = source.tree_root
-        if tree_root is None:
-            tree_root = parse_js(source.text).root_node
+    chunk_loader = find_ancestor_function(loading_node)
+    if not chunk_loader:
+        return None
 
-        loading_node = find_string_node(tree_root, WEBPACK_FINGERPRINT)
-        if not loading_node:
-            return ChunkResult()
+    src_expr = find_src_assignment(chunk_loader)
+    if not src_expr:
+        return None
 
-        chunk_loader = find_ancestor_function(loading_node)
-        if not chunk_loader:
-            return ChunkResult()
-
-        src_expr = find_src_assignment(chunk_loader)
-        if not src_expr:
-            return ChunkResult()
-
-        chunk_fn = _chunk_function(source.text, chunk_loader, src_expr)
-        params = extract_possible_params(
-            chunk_fn, DEFAULT_SETTINGS.collection.chunk_brute_force_max
-        )
-        if not params:
-            params = list(range(DEFAULT_SETTINGS.collection.chunk_brute_force_max))
-
-        results = await self.evaluator.evaluate_loader(
-            ctx.page,
-            chunk_fn,
-            params,
-        )
-        return ChunkResult(
-            frozenset(absolute_chunk_url(path, ctx.base_url) for path in results),
-        )
+    chunk_fn = _chunk_function(source.text, chunk_loader, src_expr)
+    params = extract_possible_params(
+        chunk_fn,
+        DEFAULT_SETTINGS.collection.chunk_brute_force_max,
+    )
+    if not params:
+        params = list(range(DEFAULT_SETTINGS.collection.chunk_brute_force_max))
+    return ChunkEvalPlan(chunk_fn, tuple(params))

@@ -4,9 +4,8 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-import httpx
-
 from tracesurface.collection.deps import (
+    CpuPort,
     DiscoveryDeps,
     HttpTextClient,
 )
@@ -14,7 +13,6 @@ from tracesurface.collection.discovery.engine import run_discovery_loop
 from tracesurface.collection.discovery.fact_store import FactStore
 from tracesurface.collection.runtime.auth import (
     apply_auth_bundle_to_context,
-    export_auth_bundle,
     split_storage_state,
 )
 from tracesurface.collection.runtime.cdp_trace import CDPCollectRequest, CDPTraceSession
@@ -64,7 +62,8 @@ async def collect_site(
     target_url: str,
     browser,
     wait_ms: int,
-    http_client: httpx.AsyncClient,
+    http: HttpTextClient,
+    cpu: CpuPort,
     scan_id: int | None = None,
     auth_state: dict[str, Any] | None = None,
     cdp_tracer: CDPTraceSession | None = None,
@@ -91,7 +90,7 @@ async def collect_site(
                 target_url=target_url,
                 wait_ms=wait_ms,
                 goto_timeout_ms=DEFAULT_SETTINGS.collection.bootstrap_goto_timeout_ms,
-                full_wait=headed,
+                headed=headed,
             ),
         )
 
@@ -126,10 +125,9 @@ async def collect_site(
             context=DiscoveryContext(
                 target=TargetContext(state_target_url),
                 ports=DiscoveryDeps(
-                    http=HttpTextClient(http_client),
+                    http=http,
+                    cpu=cpu,
                     page=page,
-                    browser=browser,
-                    context_kwargs=context_kwargs_base,
                 ),
                 settings=DEFAULT_SETTINGS.collection,
                 scan_id=scan_id,
@@ -149,20 +147,24 @@ async def collect_site(
                 evidence_url=page_url,
             )
 
+        if cdp_result.js_sources:
+            for js_url in tuple(cdp_result.js_sources):
+                await state.add_js_source(
+                    js_url,
+                    cdp_result.js_sources.pop(js_url),
+                )
+
         if html_source:
-            state.add_html_source(
+            await state.add_html_source(
                 page_url or target_url,
                 html_source,
                 source="bootstrap",
                 bootstrap=True,
             )
+            cdp_result.html_content = ""
+            del html_source
 
         state.record_cdp_diagnostics("bootstrap", cdp_result, page_url=page_url)
-
-        try:
-            state.auth_state = await export_auth_bundle(context)
-        except Exception as exc:
-            state.record_event("auth_export_failed", error=exc)
 
         stats = await run_discovery_loop(state)
 

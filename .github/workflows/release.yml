@@ -30,6 +30,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Test backend
+        run: uv run python -m unittest discover -s tests -v
+
       - name: Build frontend
         shell: bash
         run: |
@@ -88,4 +91,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag
+        run: >
+          gh release create "$GITHUB_REF_NAME" release/*
+          --verify-tag
+          --title "$GITHUB_REF_NAME"
+          --notes "Download the archive for your platform, extract, and run."

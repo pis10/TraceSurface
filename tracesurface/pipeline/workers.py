@@ -2,23 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
-from tracesurface.models import (
-    CollectionBundle,
-    ExtractionResult,
-    InferenceResult,
-    ScanJob,
-)
+from playwright.async_api import Browser
+
+from tracesurface.collection.deps import HttpTextClient
+from tracesurface.config import DEFAULT_SETTINGS
+from tracesurface.models import CollectionBundle, InferenceResult
+from tracesurface.pipeline.cpu import CpuRunner
 from tracesurface.pipeline.lifecycle import ScanLifecycle
 from tracesurface.pipeline.messages import (
     CollectedItem,
-    ExtractedItem,
     InferredItem,
-    NoMoreInference,
+    NoMoreAnalysis,
     ReplayDoneItem,
     SkippedItem,
     StageFailure,
@@ -28,9 +25,8 @@ from tracesurface.pipeline.messages import (
 @dataclass(frozen=True, slots=True)
 class RunConfig:
     site_concurrency: int
-    extraction_workers: int
-    inference_workers: int
-    replay_workers: int
+    cpu_workers: int
+    http_concurrency: int
     replay_concurrency: int
 
     @classmethod
@@ -38,16 +34,13 @@ class RunConfig:
         cls,
         *,
         site_concurrency: int,
-        extraction_workers: int,
-        inference_workers: int,
-        replay_workers: int,
+        cpu_workers: int,
         replay_concurrency: int,
     ) -> "RunConfig":
         return cls(
             site_concurrency=max(1, site_concurrency),
-            extraction_workers=max(1, extraction_workers),
-            inference_workers=max(1, inference_workers),
-            replay_workers=max(1, replay_workers),
+            cpu_workers=max(1, cpu_workers),
+            http_concurrency=DEFAULT_SETTINGS.http.concurrency,
             replay_concurrency=max(1, replay_concurrency),
         )
 
@@ -56,9 +49,8 @@ class RunConfig:
 class PipelineQueues:
     job: asyncio.Queue[str | None]
     collection: asyncio.Queue[CollectedItem | None]
-    extraction: asyncio.Queue[ExtractedItem | None]
     storage: asyncio.Queue[
-        InferredItem | SkippedItem | StageFailure | ReplayDoneItem | NoMoreInference
+        InferredItem | SkippedItem | StageFailure | ReplayDoneItem | NoMoreAnalysis
     ]
 
     @classmethod
@@ -66,16 +58,12 @@ class PipelineQueues:
         return cls(
             job=asyncio.Queue(),
             collection=asyncio.Queue(maxsize=max(1, config.site_concurrency * 2)),
-            extraction=asyncio.Queue(maxsize=max(1, config.extraction_workers * 2)),
-            storage=asyncio.Queue(
-                maxsize=max(1, config.inference_workers * 2 + config.replay_workers),
-            ),
+            storage=asyncio.Queue(maxsize=max(1, config.cpu_workers * 2 + 1)),
         )
 
     def seed_jobs(self, urls: tuple[str, ...], worker_count: int) -> None:
         for url in urls:
             self.job.put_nowait(url)
-
         for _ in range(worker_count):
             self.job.put_nowait(None)
 
@@ -83,33 +71,35 @@ class PipelineQueues:
 @dataclass(slots=True)
 class StageWorkers:
     queues: PipelineQueues
-    loop: asyncio.AbstractEventLoop
     lifecycle: ScanLifecycle
-    collector_executor: ProcessPoolExecutor
-    extraction_executor: ProcessPoolExecutor
-    inference_executor: ProcessPoolExecutor
+    browser: Browser
+    http: HttpTextClient
+    cpu: CpuRunner
     auth_state: dict[str, Any] | None = None
     headed: bool = False
 
     async def run_collector(self) -> None:
+        from tracesurface.collection.service import collect_site
+
         while True:
             target_url = await self.queues.job.get()
             try:
                 if target_url is None:
                     return
                 started_at = time.perf_counter()
-
                 scan_id: int | None = None
                 try:
                     job = await self.lifecycle.prepare_target(target_url)
                     scan_id = job.scan_id
-
-                    bundle = await self.loop.run_in_executor(
-                        self.collector_executor,
-                        _collect,
-                        job,
-                        self.auth_state,
-                        self.headed,
+                    bundle = await collect_site(
+                        target_url=job.target_url,
+                        browser=self.browser,
+                        wait_ms=job.wait_ms,
+                        http=self.http,
+                        cpu=self.cpu,
+                        scan_id=job.scan_id,
+                        auth_state=self.auth_state,
+                        headed=self.headed,
                     )
 
                     if bundle.skipped:
@@ -138,93 +128,37 @@ class StageWorkers:
             finally:
                 self.queues.job.task_done()
 
-    async def run_extraction(self) -> None:
-        await self._consume(
-            self.queues.collection,
-            self.queues.extraction,
-            self._extract_one,
-            "extraction",
-        )
-
-    async def run_inference(self) -> None:
-        await self._consume(
-            self.queues.extraction,
-            self.queues.storage,
-            self._infer_one,
-            "inference",
-        )
-
-    async def _extract_one(self, item: CollectedItem) -> ExtractedItem:
-        extraction = await self.loop.run_in_executor(
-            self.extraction_executor,
-            _extract,
-            item.bundle,
-        )
-        return ExtractedItem(
-            job=item.job,
-            bundle=item.bundle,
-            extraction=extraction,
-            started_at=item.started_at,
-        )
-
-    async def _infer_one(self, item: ExtractedItem) -> InferredItem:
-        inference = await self.loop.run_in_executor(
-            self.inference_executor,
-            _infer,
-            item.bundle,
-            item.extraction,
-        )
-        return InferredItem(
-            job=item.job,
-            inference=inference,
-            started_at=item.started_at,
-        )
-
-    async def _consume(
-        self,
-        in_queue: asyncio.Queue[Any],
-        out_queue: asyncio.Queue[Any],
-        process: Callable[[Any], Awaitable[Any]],
-        stage: str,
-    ) -> None:
+    async def run_analysis(self) -> None:
         while True:
-            item = await in_queue.get()
+            item = await self.queues.collection.get()
             try:
                 if item is None:
                     return
                 try:
-                    await out_queue.put(await process(item))
+                    inference = await self.cpu.run(_analyze, item.bundle)
+                    await self.queues.storage.put(
+                        InferredItem(
+                            job=item.job,
+                            inference=inference,
+                            started_at=item.started_at,
+                        )
+                    )
                 except Exception as exc:
                     await self.queues.storage.put(
                         StageFailure(
                             url=item.job.target_url,
                             scan_id=item.job.scan_id,
-                            stage=stage,
+                            stage="analysis",
                             error=exc,
                             started_at=item.started_at,
                         )
                     )
             finally:
-                in_queue.task_done()
+                self.queues.collection.task_done()
 
 
-def _collect(
-    job: ScanJob,
-    auth_state: dict[str, Any] | None,
-    headed: bool,
-) -> CollectionBundle:
-    from tracesurface.collection.worker import collect_job
-
-    return collect_job(job, auth_state=auth_state, headed=headed)
-
-
-def _extract(bundle: CollectionBundle) -> ExtractionResult:
+def _analyze(bundle: CollectionBundle) -> InferenceResult:
     from tracesurface.extraction.extractor import extract_collection
-
-    return extract_collection(bundle)
-
-
-def _infer(bundle: CollectionBundle, extraction: ExtractionResult) -> InferenceResult:
     from tracesurface.inference.service import infer
 
-    return infer(bundle, extraction)
+    return infer(bundle, extract_collection(bundle))

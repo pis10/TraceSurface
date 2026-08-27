@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
 
 from tracesurface.config import DEFAULT_SETTINGS
@@ -50,11 +51,13 @@ class ReplayService:
         *,
         transport: HTTPTransport,
         dedup: ReplayDedupStore,
+        limiter: asyncio.Semaphore,
         db_seen_keys: Iterable[str] | None = None,
-        concurrency: int = DEFAULT_SETTINGS.replay.request_concurrency,
+        concurrency: int = DEFAULT_SETTINGS.replay.concurrency,
     ) -> None:
         self.transport = transport
         self.dedup = dedup
+        self.limiter = limiter
         self.db_seen_keys = None if db_seen_keys is None else frozenset(db_seen_keys)
         self.concurrency = max(1, concurrency)
 
@@ -65,11 +68,11 @@ class ReplayService:
         sink: ReplayRecordSink | None = None,
         on_progress: ReplayProgressSink | None = None,
     ) -> ReplayResult:
-        sem = asyncio.Semaphore(self.concurrency)
         write_lock = asyncio.Lock()
         stats = _replay_stats()
         completed = 0
         total = len(plan.requests)
+        pending = deque(plan.requests)
 
         async def one(request: ReplayRequest) -> None:
             nonlocal completed
@@ -81,7 +84,7 @@ class ReplayService:
                 ):
                     return
 
-                async with sem:
+                async with self.limiter:
                     record = await self.transport.send(
                         request,
                         scan_id=plan.scan_id,
@@ -101,8 +104,13 @@ class ReplayService:
                     if on_progress is not None:
                         on_progress(completed, total, _copy_replay_stats(stats))
 
-        if plan.requests:
-            await asyncio.gather(*(one(request) for request in plan.requests))
+        async def worker() -> None:
+            while pending:
+                await one(pending.popleft())
+
+        worker_count = min(total, self.concurrency)
+        if worker_count:
+            await asyncio.gather(*(worker() for _ in range(worker_count)))
         return ReplayResult(
             scan_id=plan.scan_id,
             target_url=plan.target_url,
@@ -113,8 +121,9 @@ class ReplayService:
 async def run_replay_job(
     job: ReplayJob,
     *,
-    concurrency: int = DEFAULT_SETTINGS.replay.request_concurrency,
-    timeout: float = DEFAULT_SETTINGS.replay.timeout_s,
+    transport: HTTPTransport,
+    limiter: asyncio.Semaphore,
+    concurrency: int = DEFAULT_SETTINGS.replay.concurrency,
     on_progress: ReplayProgressSink | None = None,
     on_record: ReplayRecordSink | None = None,
     dedup_store: ReplayDedupStore | None = None,
@@ -123,19 +132,15 @@ async def run_replay_job(
 
     dedup = dedup_store or ReplayDedupStore()
 
-    async with HTTPTransport.create_client(
-        timeout=timeout,
-        max_redirects=DEFAULT_SETTINGS.replay.max_redirects,
-        verify=DEFAULT_SETTINGS.http.tls_verify,
-    ) as client:
-        service = ReplayService(
-            transport=HTTPTransport(client),
-            dedup=dedup,
-            db_seen_keys=job.db_seen_keys,
-            concurrency=concurrency,
-        )
-        return await service.run(
-            plan,
-            sink=on_record,
-            on_progress=on_progress,
-        )
+    service = ReplayService(
+        transport=transport,
+        dedup=dedup,
+        limiter=limiter,
+        db_seen_keys=job.db_seen_keys,
+        concurrency=concurrency,
+    )
+    return await service.run(
+        plan,
+        sink=on_record,
+        on_progress=on_progress,
+    )

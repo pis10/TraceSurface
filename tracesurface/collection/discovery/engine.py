@@ -90,26 +90,24 @@ async def download_js_files(
         return
 
     headers = {"Referer": referer}
-    sem = asyncio.Semaphore(session.settings.js_download_concurrency)
 
     async def download(url: str) -> None:
-        async with sem:
-            try:
-                status_code, text, content_type = await session.ports.http.get_text(
-                    url,
-                    timeout_s=session.settings.js_download_timeout_s,
-                    headers=headers,
-                )
-            except Exception:
-                return
+        try:
+            status_code, text, content_type = await session.ports.http.get_text(
+                url,
+                timeout_s=session.settings.js_download_timeout_s,
+                headers=headers,
+            )
+        except Exception:
+            return
 
-            if status_code != 200:
-                return
-            if "html" in content_type.lower():
-                return
-            session.add_js_source(url, text)
+        if status_code != 200:
+            return
+        if "html" in content_type.lower():
+            return
+        await session.add_js_source(url, text)
 
-    await asyncio.gather(*(download(url) for url in js_urls))
+    await session.ports.http.map(js_urls, download)
 
 
 def default_explorers() -> tuple[Explorer, ...]:

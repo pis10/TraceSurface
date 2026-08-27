@@ -27,6 +27,7 @@ class ScanLifecycle:
     replayed_key_counts: dict[str, int] = field(default_factory=dict)
     startup_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     cleaned_source_scans: set[int] = field(default_factory=set)
+    prepared_scans: set[int] = field(default_factory=set)
     replayed_keys: set[str] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -52,6 +53,7 @@ class ScanLifecycle:
             scan_id = await self.storage_writer.submit(
                 CreateScan(target_url, self.wait_ms)
             )
+            self.prepared_scans.add(scan_id)
         return ScanJob(target_url=target_url, scan_id=scan_id, wait_ms=self.wait_ms)
 
     async def finish_done(self, scan_id: int, summary: ScanSummary) -> None:
@@ -99,6 +101,11 @@ class ScanLifecycle:
 
         await asyncio.to_thread(remove_scan_sources, scan_id)
         self.cleaned_source_scans.add(scan_id)
+        self.prepared_scans.discard(scan_id)
+
+    async def cleanup_remaining_sources(self) -> None:
+        for scan_id in tuple(self.prepared_scans):
+            await self.cleanup_sources(scan_id)
 
 
 def _subtract_key_counts(

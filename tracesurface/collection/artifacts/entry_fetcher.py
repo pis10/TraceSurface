@@ -14,11 +14,9 @@ class MFEEntryFetcher:
         if not pending:
             return 0
 
-        fetched = 0
-
         headers = {"Referer": state.target_url}
 
-        for url in pending:
+        async def fetch(url: str) -> bool:
             graph.fetched_mfe_entries.add(url)
             try:
                 resp = await state.ports.http.get(
@@ -29,21 +27,27 @@ class MFEEntryFetcher:
                 )
 
             except Exception:
-                continue
+                return False
             if resp.status_code != 200:
-                continue
+                return False
 
-            text = resp.text or ""
+            text = await state.ports.http.text(resp)
             ct = (resp.headers.get("content-type", "") or "").lower()
             if "html" not in ct and "<script" not in text.lower():
-                continue
+                return False
 
             final_url = clean_url(str(resp.url))
-            if state.add_html_source(final_url, text, source="mfe_entry_html"):
-                fetched += 1
+            added = await state.add_html_source(
+                final_url,
+                text,
+                source="mfe_entry_html",
+            )
+            if added:
                 state.add_js_urls(
                     extract_html_js_urls(text, final_url),
                     source="mfe_entry_html",
                     evidence_url=final_url,
                 )
-        return fetched
+            return added
+
+        return sum(await state.ports.http.map(pending, fetch))

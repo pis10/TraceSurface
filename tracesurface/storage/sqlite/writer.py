@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -32,6 +34,10 @@ class StorageWriter:
         self.queue: asyncio.Queue[_Envelope | object] = asyncio.Queue()
         self.task: asyncio.Task[None] | None = None
         self._replay_flush_error: Exception | None = None
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="tracesurface-sqlite",
+        )
 
     async def start(self) -> None:
         if self.task is None:
@@ -49,7 +55,8 @@ class StorageWriter:
                 if exc is not None:
                     raise exc
         finally:
-            self.repo.close()
+            await self._run_db(self.repo.close)
+            self._executor.shutdown(wait=True, cancel_futures=True)
 
     async def submit(self, command: StorageCommand) -> Any:
         loop = asyncio.get_running_loop()
@@ -76,14 +83,14 @@ class StorageWriter:
             if item is _STOP:
                 stopping = True
             elif item is None:
-                self._flush_replays(pending_replays)
+                await self._flush_replays(pending_replays)
                 pending_replays.clear()
             elif isinstance(item, _Envelope):
                 command = item.command
                 if isinstance(command, SaveReplayRecord):
                     pending_replays.append(item)
                 elif isinstance(command, Flush):
-                    exc = self._flush_replays(pending_replays)
+                    exc = await self._flush_replays(pending_replays)
                     pending_replays.clear()
 
                     exc = exc or self._take_replay_flush_error()
@@ -92,30 +99,33 @@ class StorageWriter:
                     else:
                         self._set_exception(item, exc)
                 else:
-                    exc = self._flush_replays(pending_replays)
+                    exc = await self._flush_replays(pending_replays)
                     pending_replays.clear()
                     exc = exc or self._take_replay_flush_error()
 
                     if exc is None:
-                        self._execute_one(item)
+                        await self._execute_one(item)
                     else:
                         self._set_exception(item, exc)
 
             if len(pending_replays) >= self.replay_batch_size:
-                self._flush_replays(pending_replays)
+                await self._flush_replays(pending_replays)
                 pending_replays.clear()
 
-        self._flush_replays(pending_replays)
+        await self._flush_replays(pending_replays)
 
-    def _execute_one(self, env: _Envelope) -> None:
+    async def _execute_one(self, env: _Envelope) -> None:
         try:
-            result = self.repo.execute(env.command)
+            result = await self._run_db(self.repo.execute, env.command)
         except Exception as exc:
             self._set_exception(env, exc)
         else:
             self._set_result(env, result)
 
-    def _flush_replays(self, envelopes: list[_Envelope]) -> Exception | None:
+    async def _flush_replays(
+        self,
+        envelopes: list[_Envelope],
+    ) -> Exception | None:
         if not envelopes:
             return None
 
@@ -125,7 +135,7 @@ class StorageWriter:
             if isinstance(env.command, SaveReplayRecord)
         ]
         try:
-            replay_ids = self.repo.save_replays_batch(records)
+            replay_ids = await self._run_db(self.repo.save_replays_batch, records)
         except Exception as exc:
             for env in envelopes:
                 self._set_exception(env, exc)
@@ -137,6 +147,14 @@ class StorageWriter:
         for env, replay_id in zip(envelopes, replay_ids):
             self._set_result(env, replay_id)
         return None
+
+    async def _run_db(
+        self,
+        func: Callable[..., Any],
+        *args: Any,
+    ) -> Any:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, func, *args)
 
     def _take_replay_flush_error(self) -> Exception | None:
         exc = self._replay_flush_error

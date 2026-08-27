@@ -15,7 +15,7 @@ from tracesurface.models import (
 from tracesurface.pipeline.lifecycle import ScanLifecycle
 from tracesurface.pipeline.messages import (
     InferredItem,
-    NoMoreInference,
+    NoMoreAnalysis,
     ReplayDoneItem,
     ReplayPendingItem,
     SkippedItem,
@@ -25,7 +25,7 @@ from tracesurface.pipeline.outcome import OutcomeRecorder
 from tracesurface.pipeline.replay_scheduler import ReplayScheduler
 
 StorageItem = (
-    InferredItem | SkippedItem | StageFailure | ReplayDoneItem | NoMoreInference
+    InferredItem | SkippedItem | StageFailure | ReplayDoneItem | NoMoreAnalysis
 )
 
 
@@ -37,7 +37,7 @@ class StorageCoordinator:
     do_replay: bool
     allow_destructive: bool
     pending_replays: int = 0
-    no_more_inference: bool = False
+    no_more_analysis: bool = False
 
     async def run(self, queue: asyncio.Queue[StorageItem]) -> None:
         while True:
@@ -51,8 +51,8 @@ class StorageCoordinator:
                 queue.task_done()
 
     async def _handle(self, item: StorageItem) -> None:
-        if isinstance(item, NoMoreInference):
-            self.no_more_inference = True
+        if isinstance(item, NoMoreAnalysis):
+            self.no_more_analysis = True
             return
 
         if isinstance(item, StageFailure):
@@ -132,6 +132,7 @@ class StorageCoordinator:
         summary = ScanSummary(warnings=item.warnings, skipped=True)
         try:
             await self.lifecycle.finish_done(item.job.scan_id, summary)
+            await self.lifecycle.cleanup_sources(item.job.scan_id)
             self.recorder.record_skipped(item.job, summary, item.started_at)
         except Exception as exc:
             await self._fail_storage(item.job, item.started_at, exc)
@@ -154,7 +155,7 @@ class StorageCoordinator:
 
     def _done(self) -> bool:
         return (
-            self.no_more_inference
+            self.no_more_analysis
             and self.pending_replays == 0
             and self.recorder.done_count >= self.recorder.total
         )

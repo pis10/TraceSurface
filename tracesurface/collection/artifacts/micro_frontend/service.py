@@ -7,25 +7,24 @@ from tracesurface.collection.artifacts.micro_frontend.entries import (
     classify_app_entries,
 )
 from tracesurface.collection.artifacts.micro_frontend.harvest import (
-    detect_static_script_urls,
     harvest_identifiers,
 )
 from tracesurface.collection.artifacts.micro_frontend.scanner import (
     SourceScan,
     enrich_identifiers_from_cached_arrays,
-    scan_one_source,
 )
 from tracesurface.collection.artifacts.micro_frontend.signal_b import (
-    match_qiankun_schema_in_json,
+    match_qiankun_bodies,
 )
 from tracesurface.collection.artifacts.micro_frontend.signal_e import (
     render_loader_urls,
     validate_urls,
 )
+from tracesurface.collection.artifacts.static_analysis import (
+    analyze_html_artifact,
+    analyze_js_artifact,
+)
 from tracesurface.config import DEFAULT_SETTINGS
-from tracesurface.htmlast import extract_inline_scripts
-from tracesurface.jsast import parse_js
-from tracesurface.sources import load_source
 
 AppConfig = dict[str, object]
 
@@ -39,10 +38,18 @@ async def collect_micro_frontend(state) -> None:
         cached = state.cache.source_scans.get(js_url)
         if isinstance(cached, SourceScan):
             scan = cached
+        elif cached is False:
+            continue
         else:
-            src = load_source(ref)
-            scan = scan_one_source(src)
+            result = await state.ports.cpu.run(
+                analyze_js_artifact,
+                ref,
+                js_url,
+                state.target_url,
+            )
+            scan = result.source_scan
             if scan is None:
+                state.cache.source_scans[js_url] = False
                 continue
             state.cache.source_scans[js_url] = scan
 
@@ -62,14 +69,13 @@ async def collect_micro_frontend(state) -> None:
         if isinstance(cached_html, set):
             static_src_urls |= cached_html
         else:
-            html_urls: set[str] = set()
-            html_source = load_source(html_ref)
-            for _line, script in extract_inline_scripts(html_source):
-                try:
-                    tree_root = parse_js(script).root_node
-                except Exception:
-                    continue
-                html_urls |= detect_static_script_urls(tree_root)
+            result = await state.ports.cpu.run(
+                analyze_html_artifact,
+                html_ref,
+                html_key,
+                state.target_url,
+            )
+            html_urls = set(result.inline_static_urls)
             state.cache.inline_static_urls[html_key] = html_urls
             static_src_urls |= html_urls
 
@@ -84,11 +90,12 @@ async def collect_micro_frontend(state) -> None:
             for name in loader_names:
                 merged_sites[name] |= scan.call_sites.get(name, set())
 
-    apps_from_b: list[AppConfig] = []
-    for url, body in state.json_response_bodies.items():
-        hits = match_qiankun_schema_in_json(body)
-        if hits:
-            apps_from_b.extend(hits)
+    response_bodies = tuple(state.json_response_bodies.values())
+    apps_from_b = (
+        await state.ports.cpu.run(match_qiankun_bodies, response_bodies)
+        if response_bodies
+        else []
+    )
 
     seen_names: set[str] = set()
     combined_apps: list[AppConfig] = []
@@ -117,6 +124,7 @@ async def collect_micro_frontend(state) -> None:
             cdp_response_bodies=state.json_response_bodies,
             target_url=state.target_url,
             http_client=state.ports.http,
+            cpu=state.ports.cpu,
             cache=state.cache.harvest,
         )
 

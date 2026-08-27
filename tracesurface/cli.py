@@ -154,23 +154,34 @@ def scan(
         rich_help_panel="目标",
     ),
     site_concurrency: int = typer.Option(
-        DEFAULT_SETTINGS.workers.collection_workers,
+        DEFAULT_SETTINGS.workers.site_concurrency,
         "--sites",
         "-s",
         min=1,
         max=15,
-        help=f"同时扫描的站点数（默认 {DEFAULT_SETTINGS.workers.collection_workers}，最多 15）",
+        help=f"同时扫描的站点 Context 数（默认 {DEFAULT_SETTINGS.workers.site_concurrency}，最多 15）",
         rich_help_panel="并发",
     ),
     replay_concurrency: int = typer.Option(
-        DEFAULT_SETTINGS.replay.request_concurrency,
+        DEFAULT_SETTINGS.replay.concurrency,
         "--rate",
         "-r",
         min=1,
         max=50,
         help=(
-            f"每个站点的发包并发数（单目标不超此值，避免触发 WAF；默认 "
-            f"{DEFAULT_SETTINGS.replay.request_concurrency}，最多 50）"
+            f"全批次发包并发上限（默认 "
+            f"{DEFAULT_SETTINGS.replay.concurrency}，最多 50）"
+        ),
+        rich_help_panel="并发",
+    ),
+    cpu_workers: int = typer.Option(
+        DEFAULT_SETTINGS.workers.cpu_workers,
+        "--cpu-workers",
+        min=1,
+        max=8,
+        help=(
+            f"CPU 分析进程数（AST / secrets / 推导，默认 "
+            f"{DEFAULT_SETTINGS.workers.cpu_workers}，最多 8）"
         ),
         rich_help_panel="并发",
     ),
@@ -209,43 +220,10 @@ def scan(
         "--wait-ms",
         min=0,
         help=(
-            f"首屏观察时长，毫秒（默认 {DEFAULT_SETTINGS.collection.bootstrap_wait_ms}；"
+            f"首屏 networkidle 最大等待时间，毫秒（默认 {DEFAULT_SETTINGS.collection.bootstrap_wait_ms}；"
             "--headed 下会等满整窗供手动操作）"
         ),
         rich_help_panel="调试",
-    ),
-    extraction_workers: int = typer.Option(
-        DEFAULT_SETTINGS.workers.extraction_workers,
-        "--extract-workers",
-        min=1,
-        max=8,
-        help=(
-            f"提取进程数（AST / inline / secrets，默认 "
-            f"{DEFAULT_SETTINGS.workers.extraction_workers}，最多 8）"
-        ),
-        rich_help_panel="高级",
-    ),
-    inference_workers: int = typer.Option(
-        DEFAULT_SETTINGS.workers.inference_workers,
-        "--infer-workers",
-        min=1,
-        max=8,
-        help=(
-            f"推导进程数（CDP 对齐 / baseURL / L1–L3，默认 "
-            f"{DEFAULT_SETTINGS.workers.inference_workers}，最多 8）"
-        ),
-        rich_help_panel="高级",
-    ),
-    replay_workers: int = typer.Option(
-        DEFAULT_SETTINGS.workers.replay_workers,
-        "--replay-sites",
-        min=1,
-        max=15,
-        help=(
-            f"同时发包的站点数（总出站并发 = 本值 × -r；默认 "
-            f"{DEFAULT_SETTINGS.workers.replay_workers}，最多 15）"
-        ),
-        rich_help_panel="高级",
     ),
 ) -> None:
     if auth is not None and no_auth:
@@ -261,15 +239,14 @@ def scan(
 
     urls = _read_targets(file, url)
 
-    collection_workers = min(site_concurrency, len(urls))
+    site_concurrency = min(site_concurrency, len(urls))
     auth_state, auth_label = _resolve_auth(auth, no_auth)
     _ensure_browser()
 
     render_scan_header(
         urls=urls,
-        collection_workers=collection_workers,
-        extraction_workers=extraction_workers,
-        inference_workers=inference_workers,
+        site_concurrency=site_concurrency,
+        cpu_workers=cpu_workers,
         replay_concurrency=replay_concurrency,
         replay_opt=replay_opt,
         auth_label=auth_label,
@@ -302,12 +279,10 @@ def scan(
             ScanRequest(
                 urls=tuple(urls),
                 wait_ms=wait_ms,
-                site_concurrency=collection_workers,
+                site_concurrency=site_concurrency,
                 replay_concurrency=replay_concurrency,
                 do_replay=replay_opt,
-                extraction_workers=extraction_workers,
-                inference_workers=inference_workers,
-                replay_workers=replay_workers,
+                cpu_workers=cpu_workers,
                 auth_state=auth_state,
                 headed=headed,
                 allow_destructive=allow_destructive,
@@ -361,19 +336,6 @@ def login(
     ui.success(
         f"已保存登录态 [tracesurface.dim]{ui.SYM.arrow}[/] {ui.escape(str(out_path))}"
     )
-
-
-@app.command(short_help="下载扫描所需的 Chromium 浏览器（仅首次需要）")
-def install_browser() -> None:
-    ui.brand("浏览器安装")
-    ui.notice("下载 Playwright Chromium，仅在首次使用或升级 Playwright 后需要")
-
-    try:
-        install_chromium()
-    except Exception as e:
-        ui.abort(f"Chromium 下载失败：{e}")
-
-    ui.success("Chromium 已就绪")
 
 
 @app.command(short_help="启动本地报告站，浏览扫描结果")

@@ -1,18 +1,29 @@
 from __future__ import annotations
 
 import asyncio
-import sys
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
+import httpx
+from playwright.async_api import async_playwright
+
+from tracesurface.collection.deps import HttpTextClient
+from tracesurface.collection.runtime.browser_context import launch_browser
 from tracesurface.config import DEFAULT_SETTINGS
+from tracesurface.http import StatelessAsyncClient
+from tracesurface.pipeline.cpu import CpuRunner
 from tracesurface.pipeline.lifecycle import ScanLifecycle
-from tracesurface.pipeline.messages import BatchScanOutcome, NoMoreInference, ScanOutput
+from tracesurface.pipeline.messages import BatchScanOutcome, NoMoreAnalysis, ScanOutput
 from tracesurface.pipeline.outcome import OutcomeRecorder
 from tracesurface.pipeline.replay_scheduler import ReplayScheduler
 from tracesurface.pipeline.storage_coordinator import StorageCoordinator
 from tracesurface.pipeline.workers import PipelineQueues, RunConfig, StageWorkers
+from tracesurface.replay.service import run_replay_job
+from tracesurface.replay.transport import HTTPTransport
 from tracesurface.storage.sqlite.writer import open_writer
 from tracesurface.ui import configure_worker_logging
 
@@ -25,9 +36,7 @@ class ScanRequest:
     replay_concurrency: int
     do_replay: bool
     output: ScanOutput
-    extraction_workers: int = DEFAULT_SETTINGS.workers.extraction_workers
-    inference_workers: int = DEFAULT_SETTINGS.workers.inference_workers
-    replay_workers: int = DEFAULT_SETTINGS.workers.replay_workers
+    cpu_workers: int = DEFAULT_SETTINGS.workers.cpu_workers
     auth_state: dict[str, Any] | None = None
     headed: bool = False
     allow_destructive: bool = False
@@ -35,135 +44,151 @@ class ScanRequest:
 
 class PipelineRunner:
     async def run(self, request: ScanRequest) -> list[BatchScanOutcome]:
-        from tracesurface.replay.service import run_replay_job
-
         config = RunConfig.of(
             site_concurrency=request.site_concurrency,
-            extraction_workers=request.extraction_workers,
-            inference_workers=request.inference_workers,
-            replay_workers=request.replay_workers,
+            cpu_workers=request.cpu_workers,
             replay_concurrency=request.replay_concurrency,
         )
-
-        replayed_key_counts: dict[str, int] = {}
-        if request.do_replay:
-            replayed_key_counts = await asyncio.to_thread(_load_replayed_keys)
-
+        replayed_key_counts = (
+            await asyncio.to_thread(_load_replayed_keys) if request.do_replay else {}
+        )
         results: list[BatchScanOutcome] = []
         recorder = OutcomeRecorder(
             total=len(request.urls),
             output=request.output,
             results=results,
         )
-
         queues = PipelineQueues.create(config)
-
-        storage_writer = open_writer()
-        await storage_writer.start()
-        lifecycle = ScanLifecycle(
-            storage_writer=storage_writer,
-            target_replay_key_counts_loader=_load_target_replayed_keys,
-            cdp_replay_targets_loader=_load_cdp_replay_targets,
-            wait_ms=request.wait_ms,
-            do_replay=request.do_replay,
-            replayed_key_counts=replayed_key_counts,
-        )
-        replay_scheduler = ReplayScheduler(
-            storage_writer=storage_writer,
-            replay_workers=config.replay_workers,
-            replay_concurrency=config.replay_concurrency,
-            output_queue=queues.storage,
-            run_replay_job=run_replay_job,
-        )
-        coordinator = StorageCoordinator(
-            lifecycle=lifecycle,
-            replay_scheduler=replay_scheduler,
-            recorder=recorder,
-            do_replay=request.do_replay,
-            allow_destructive=request.allow_destructive,
-        )
-
         queues.seed_jobs(request.urls, config.site_concurrency)
 
-        collector_executor = ProcessPoolExecutor(
-            max_workers=config.site_concurrency,
+        cpu_executor = ProcessPoolExecutor(
+            max_workers=config.cpu_workers,
+            mp_context=multiprocessing.get_context("spawn"),
             initializer=configure_worker_logging,
         )
-        extraction_executor = ProcessPoolExecutor(
-            max_workers=config.extraction_workers,
-            initializer=configure_worker_logging,
-        )
-        inference_executor = ProcessPoolExecutor(
-            max_workers=config.inference_workers,
-            initializer=configure_worker_logging,
-        )
-
-        workers = StageWorkers(
-            queues=queues,
-            loop=asyncio.get_running_loop(),
-            lifecycle=lifecycle,
-            collector_executor=collector_executor,
-            extraction_executor=extraction_executor,
-            inference_executor=inference_executor,
-            auth_state=request.auth_state,
-            headed=request.headed,
-        )
+        cpu = CpuRunner(cpu_executor)
+        storage_writer = None
+        lifecycle = None
 
         try:
-            collectors = [
-                asyncio.create_task(workers.run_collector())
-                for _ in range(config.site_concurrency)
-            ]
-            extractors = [
-                asyncio.create_task(workers.run_extraction())
-                for _ in range(config.extraction_workers)
-            ]
-            inferers = [
-                asyncio.create_task(workers.run_inference())
-                for _ in range(config.inference_workers)
-            ]
+            storage_writer = await asyncio.to_thread(open_writer)
+            await storage_writer.start()
+            async with AsyncExitStack() as resources:
+                collection_client = await resources.enter_async_context(
+                    StatelessAsyncClient(
+                        follow_redirects=True,
+                        headers={
+                            "User-Agent": DEFAULT_SETTINGS.browser.user_agent,
+                        },
+                        verify=DEFAULT_SETTINGS.http.tls_verify,
+                        limits=_http_limits(config.http_concurrency),
+                    )
+                )
+                http = HttpTextClient(
+                    collection_client,
+                    concurrency=config.http_concurrency,
+                )
+                replay_client = await resources.enter_async_context(
+                    HTTPTransport.create_client(
+                        max_connections=config.replay_concurrency,
+                    )
+                )
+                replay_limiter = asyncio.Semaphore(config.replay_concurrency)
 
-            storage_task = asyncio.create_task(coordinator.run(queues.storage))
+                playwright = await async_playwright().start()
+                resources.push_async_callback(playwright.stop)
+                browser = await launch_browser(playwright, headless=not request.headed)
+                resources.push_async_callback(browser.close)
 
-            await asyncio.gather(*collectors)
+                lifecycle = ScanLifecycle(
+                    storage_writer=storage_writer,
+                    target_replay_key_counts_loader=_load_target_replayed_keys,
+                    cdp_replay_targets_loader=_load_cdp_replay_targets,
+                    wait_ms=request.wait_ms,
+                    do_replay=request.do_replay,
+                    replayed_key_counts=replayed_key_counts,
+                )
+                replay_scheduler = ReplayScheduler(
+                    storage_writer=storage_writer,
+                    replay_concurrency=config.replay_concurrency,
+                    output_queue=queues.storage,
+                    run_replay_job=partial(
+                        run_replay_job,
+                        transport=HTTPTransport(replay_client),
+                        limiter=replay_limiter,
+                    ),
+                )
+                coordinator = StorageCoordinator(
+                    lifecycle=lifecycle,
+                    replay_scheduler=replay_scheduler,
+                    recorder=recorder,
+                    do_replay=request.do_replay,
+                    allow_destructive=request.allow_destructive,
+                )
+                workers = StageWorkers(
+                    queues=queues,
+                    lifecycle=lifecycle,
+                    browser=browser,
+                    http=http,
+                    cpu=cpu,
+                    auth_state=request.auth_state,
+                    headed=request.headed,
+                )
 
-            for _ in extractors:
-                await queues.collection.put(None)
-            await asyncio.gather(*extractors)
-
-            for _ in inferers:
-                await queues.extraction.put(None)
-            await asyncio.gather(*inferers)
-
-            await queues.storage.put(NoMoreInference())
-            await storage_task
-
-            await replay_scheduler.join()
-        finally:
-            cleanup_error: BaseException | None = None
-            try:
-                await replay_scheduler.shutdown()
-            except Exception as exc:
-                cleanup_error = cleanup_error or exc
-            try:
-                await storage_writer.stop()
-            except Exception as exc:
-                cleanup_error = cleanup_error or exc
-
-            for executor in (
-                inference_executor,
-                extraction_executor,
-                collector_executor,
-            ):
+                tasks: list[asyncio.Task[None]] = []
                 try:
-                    executor.shutdown(wait=True, cancel_futures=True)
-                except Exception as exc:
-                    cleanup_error = cleanup_error or exc
+                    collectors = [
+                        asyncio.create_task(workers.run_collector())
+                        for _ in range(config.site_concurrency)
+                    ]
+                    analyses = [
+                        asyncio.create_task(workers.run_analysis())
+                        for _ in range(config.cpu_workers)
+                    ]
+                    storage_task = asyncio.create_task(
+                        coordinator.run(queues.storage)
+                    )
+                    tasks = [*collectors, *analyses, storage_task]
 
-            if cleanup_error is not None and sys.exc_info()[1] is None:
-                raise cleanup_error
+                    await asyncio.gather(*collectors)
+                    for _ in analyses:
+                        await queues.collection.put(None)
+                    await asyncio.gather(*analyses)
+
+                    await queues.storage.put(NoMoreAnalysis())
+                    await storage_task
+                    await replay_scheduler.join()
+                finally:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                    await replay_scheduler.shutdown()
+        finally:
+            try:
+                if storage_writer is not None:
+                    await storage_writer.stop()
+            finally:
+                try:
+                    await asyncio.to_thread(
+                        cpu_executor.shutdown,
+                        wait=True,
+                        cancel_futures=True,
+                    )
+                finally:
+                    if lifecycle is not None:
+                        await lifecycle.cleanup_remaining_sources()
 
         return results
+
+
+def _http_limits(concurrency: int) -> httpx.Limits:
+    concurrency = max(1, concurrency)
+    return httpx.Limits(
+        max_connections=concurrency,
+        max_keepalive_connections=concurrency,
+    )
 
 
 def _load_replayed_keys() -> dict[str, int]:

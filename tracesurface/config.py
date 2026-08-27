@@ -13,10 +13,8 @@ DEFAULT_USER_AGENT = (
 
 @dataclass(frozen=True, slots=True)
 class WorkerSettings:
-    collection_workers: int = 3
-    extraction_workers: int = 1
-    inference_workers: int = 1
-    replay_workers: int = 3
+    site_concurrency: int = 3
+    cpu_workers: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +25,7 @@ class BrowserSettings:
 
 @dataclass(frozen=True, slots=True)
 class HTTPSettings:
+    concurrency: int = 10
     timeout_s: float = 10
     tls_verify: bool = False
 
@@ -36,27 +35,20 @@ class CollectionSettings:
     redirect_guard_enabled: bool = True
     bootstrap_wait_ms: int = 7000
     bootstrap_goto_timeout_ms: int = 10000
-    bootstrap_min_observe_ms: int = 1500
-    bootstrap_activity_quiet_ms: int = 800
     cdp_stack_depth: int = 128
     response_body_capture_limit: int = DEFAULT_RESPONSE_BODY_CAPTURE_LIMIT
 
     discovery_max_rounds: int = 3
-    js_download_concurrency: int = 10
     js_download_timeout_s: float = 10
 
     chunk_brute_force_max: int = 1000
     chunk_eval_timeout_ms: int = 30_000
 
     mfe_validate_timeout_s: float = 3
-    mfe_validate_concurrency: int = 10
     mfe_harvest_max_ids_per_body: int = 50
     mfe_max_external_ids: int = 150
 
     route_total_timeout_ms: int = 5000
-    route_min_observe_ms: int = 1200
-    route_activity_quiet_ms: int = 700
-    route_batch_context_size: int = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +59,7 @@ class RouteMaterializationSettings:
 
 @dataclass(frozen=True, slots=True)
 class ReplaySettings:
-    request_concurrency: int = 5
+    concurrency: int = 5
     timeout_s: float = 10.0
     max_redirects: int = 3
     response_body_capture_limit: int = DEFAULT_RESPONSE_BODY_CAPTURE_LIMIT

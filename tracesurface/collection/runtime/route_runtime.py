@@ -1,14 +1,7 @@
 from __future__ import annotations
 
-from contextlib import suppress
-
 from tracesurface.collection.discovery.explorer import ExplorerResult
 from tracesurface.collection.route import build_route_url, fill_dynamic_params
-from tracesurface.collection.runtime.auth import (
-    apply_auth_bundle_to_context,
-    export_auth_bundle,
-    split_storage_state,
-)
 from tracesurface.collection.runtime.cdp_trace import CDPCollectRequest, CDPTraceSession
 from tracesurface.collection.session import DiscoverySession
 from tracesurface.config import DEFAULT_SETTINGS
@@ -48,7 +41,6 @@ async def _visit_one(
                 wait_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
                 goto_timeout_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
                 total_timeout_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
-                unique_activity_wait=True,
             ),
         )
     except Exception as exc:
@@ -73,6 +65,8 @@ async def _visit_one(
     fact.visited = True
     state.routes_visited.add(route)
     state.add_js_urls(cdp.js_urls, source="route_cdp", evidence_url=route_url)
+    for js_url, source in cdp.js_sources.items():
+        await state.add_js_source(js_url, source)
     state.add_cdp_requests(cdp.requests)
 
     fact.new_js += len(state.js_urls - pre_js)
@@ -81,7 +75,11 @@ async def _visit_one(
 
     if cdp.html_content:
         page_key = route_url.split("#")[0].split("?")[0]
-        state.add_html_source(page_key, cdp.html_content, source="route_rendered")
+        await state.add_html_source(
+            page_key,
+            cdp.html_content,
+            source="route_rendered",
+        )
 
     for url, body in cdp.json_response_bodies.items():
         state.json_response_bodies.setdefault(url, body)
@@ -99,49 +97,12 @@ async def visit_route_facts(
     candidates.sort(key=lambda fact: _route_sort_key(fact.path, fact.source))
     cdp_tracer = tracer or CDPTraceSession()
 
-    if state.ports.browser is None:
-        page = state.ports.page
-        if page is None:
-            raise RuntimeError(
-                "route runtime requires either ports.browser or ports.page",
-            )
-        for fact in candidates:
-            await _visit_one(state, fact, cdp_tracer, page)
-        return
+    page = state.ports.page
+    if page is None:
+        raise RuntimeError("route runtime requires a page")
 
-    batch_size = max(1, state.settings.route_batch_context_size)
-    context_kwargs_base = dict(state.ports.context_kwargs or {})
-
-    for start in range(0, len(candidates), batch_size):
-        batch = candidates[start : start + batch_size]
-
-        ctx_kwargs = dict(context_kwargs_base)
-        clean_storage, _ = split_storage_state(state.auth_state)
-        if clean_storage is not None:
-            ctx_kwargs["storage_state"] = clean_storage
-        context = await state.ports.browser.new_context(**ctx_kwargs)
-        await apply_auth_bundle_to_context(context, state.auth_state)
-        try:
-            page = await context.new_page()
-
-            try:
-                await page.goto(
-                    state.target_url,
-                    wait_until="domcontentloaded",
-                    timeout=DEFAULT_SETTINGS.collection.bootstrap_goto_timeout_ms,
-                )
-            except Exception:
-                pass
-            for fact in batch:
-                await _visit_one(state, fact, cdp_tracer, page)
-        finally:
-            try:
-                state.auth_state = await export_auth_bundle(context)
-            except Exception as exc:
-                state.record_event("auth_export_failed", error=exc)
-
-            with suppress(Exception):
-                await context.close()
+    for fact in candidates:
+        await _visit_one(state, fact, cdp_tracer, page)
 
 
 class RouteRuntimeExplorer:

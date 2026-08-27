@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from tracesurface.models import (
     CollectionBundle,
-    ExtractionResult,
     InferenceResult,
     ReplayJob,
     ReplayResult,
@@ -20,14 +19,6 @@ from tracesurface.models import (
 class CollectedItem:
     job: ScanJob
     bundle: CollectionBundle
-    started_at: float
-
-
-@dataclass(frozen=True, slots=True)
-class ExtractedItem:
-    job: ScanJob
-    bundle: CollectionBundle
-    extraction: ExtractionResult
     started_at: float
 
 
@@ -82,7 +73,7 @@ class BatchScanOutcome:
 
 
 @dataclass(frozen=True, slots=True)
-class NoMoreInference: ...
+class NoMoreAnalysis: ...
 
 
 @dataclass(frozen=True, slots=True)
