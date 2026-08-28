@@ -95,4 +95,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" release/*
           --verify-tag
           --title "$GITHUB_REF_NAME"
-          --notes "Download the archive for your platform, extract, and run."
+          --notes "下载对应平台的压缩包，解压后即可运行。"
