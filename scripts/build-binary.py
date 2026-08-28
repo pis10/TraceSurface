@@ -39,6 +39,9 @@ def main() -> None:
         "--python-flag=-m",
         "--assume-yes-for-downloads",
         "--playwright-include-browser=none",
+        # Default onefile unpacks to a unique temp dir on every launch.
+        "--onefile-cache-mode=cached",
+        f"--onefile-tempdir-spec={{CACHE_DIR}}/tracesurface/{__version__}",
         f"--output-dir={OUTPUT_DIR}",
         "--output-filename=tracesurface",
         "--include-data-dir=tracesurface/server/static=tracesurface/server/static",

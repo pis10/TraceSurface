@@ -15,28 +15,7 @@ if sys.platform == "win32":
 import typer
 
 from tracesurface import __version__, ui
-from tracesurface.auth import (
-    auth_state_age,
-    load_auth_state,
-    save_login_state,
-)
-from tracesurface.browser import (
-    chromium_is_installed,
-    install_chromium,
-    system_chrome_path,
-)
 from tracesurface.config import DEFAULT_SETTINGS
-from tracesurface.pipeline.messages import ScanOutput
-from tracesurface.pipeline.runner import PipelineRunner, ScanRequest
-from tracesurface.render import (
-    record_scan_failure,
-    record_scan_skipped,
-    record_scan_success,
-    render_scan_header,
-    render_summary,
-)
-from tracesurface.server.run import run_report_server
-from tracesurface.storage.sqlite.connection import auth_path, db_path
 
 _APP_HELP = """前端 API 发现与验证工具
 
@@ -79,6 +58,9 @@ def _resolve_auth(
     explicit_path: Path | None,
     no_auth: bool,
 ) -> tuple[dict[str, Any] | None, str]:
+    from tracesurface.auth import auth_state_age, load_auth_state
+    from tracesurface.storage.sqlite.connection import auth_path
+
     if no_auth:
         return None, "已禁用（--no-auth）"
 
@@ -124,6 +106,12 @@ def _read_targets(file: Path | None, url: str | None) -> list[str]:
 
 
 def _ensure_browser() -> None:
+    from tracesurface.browser import (
+        chromium_is_installed,
+        install_chromium,
+        system_chrome_path,
+    )
+
     if system_chrome_path() is not None:
         return
 
@@ -237,6 +225,16 @@ def scan(
         ui.console.print(click.get_current_context().get_help())
         raise typer.Exit(0)
 
+    from tracesurface.pipeline.messages import ScanOutput
+    from tracesurface.pipeline.runner import PipelineRunner, ScanRequest
+    from tracesurface.render import (
+        record_scan_failure,
+        record_scan_skipped,
+        record_scan_success,
+        render_scan_header,
+        render_summary,
+    )
+
     urls = _read_targets(file, url)
 
     site_concurrency = min(site_concurrency, len(urls))
@@ -307,6 +305,9 @@ def login(
         help="登录态保存路径（默认 ~/.tracesurface/auth.json）",
     ),
 ) -> None:
+    from tracesurface.auth import save_login_state
+    from tracesurface.storage.sqlite.connection import auth_path
+
     out_path = output if output is not None else auth_path()
     ui.brand("登录态采集")
     _ensure_browser()
@@ -344,6 +345,9 @@ def serve(
     port: int = typer.Option(8765, "--port", help="端口"),
     reload: bool = typer.Option(False, "--reload", help="开发模式热重载"),
 ) -> None:
+    from tracesurface.server.run import run_report_server
+    from tracesurface.storage.sqlite.connection import db_path
+
     ui.brand("报告服务")
     ui.kv_block(
         [
