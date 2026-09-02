@@ -177,16 +177,6 @@ class CollectionBundle:
 
 
 @dataclass(frozen=True, slots=True)
-class ExtractionResult:
-    secrets: Sequence[SecretMatch] = ()
-    js_count: int = 0
-    facts: ExtractionFacts = field(default_factory=ExtractionFacts)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "secrets", tuple(self.secrets))
-
-
-@dataclass(frozen=True, slots=True)
 class InferenceResult:
     result: ScanResult = field(default_factory=ScanResult)
 
@@ -204,6 +194,5 @@ __all__ = [
     "ScanSummary",
     "ScanResult",
     "CollectionBundle",
-    "ExtractionResult",
     "InferenceResult",
 ]

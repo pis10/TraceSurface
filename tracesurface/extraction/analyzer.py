@@ -14,8 +14,7 @@ from tracesurface.extraction.matchers.object_config import match_object_config
 from tracesurface.extraction.matchers.split_wrapper import match_split_wrapper
 from tracesurface.extraction.matchers.wrapped_call import match_wrapped_call
 from tracesurface.extraction.matchers.xhr_open import match_xhr_open
-from tracesurface.htmlast import extract_inline_scripts
-from tracesurface.jsast import JsParser, walk_pre_iter
+from tracesurface.jsast import walk_pre_iter
 from tracesurface.models import ExtractionFacts, RequestFact
 
 MatcherFn = Callable[[Node, MatcherContext], RequestFact | None]
@@ -64,9 +63,6 @@ def _file_facts(matches: list[RequestFact], root, js_url, ctx) -> ExtractionFact
 
 
 class ASTAnalyzer:
-    def __init__(self) -> None:
-        self.parser = JsParser()
-
     def _collect_matches(
         self,
         root: Node,
@@ -166,39 +162,3 @@ class ASTAnalyzer:
                 )
             matches = shifted
         return _file_facts(matches, root, js_url, ctx)
-
-    def analyze_js_all(
-        self,
-        source: str,
-        js_url: str = "",
-        wrapper_prefixes: dict[str, str] | None = None,
-    ):
-        source = self.parser.normalize(source)
-        tree = self.parser.parse(source)
-        return self.analyze_parsed(
-            tree.root_node, source, js_url, wrapper_prefixes
-        )
-
-    def analyze_html_inline_all(
-        self,
-        html: str,
-        js_url: str = "",
-        wrapper_prefixes: dict[str, str] | None = None,
-    ):
-        facts_acc = ExtractionFacts()
-        for start_line, script in extract_inline_scripts(html):
-            norm = self.parser.normalize(script)
-            tree = self.parser.parse(norm)
-            file_facts = self.analyze_parsed(
-                tree.root_node,
-                norm,
-                js_url,
-                wrapper_prefixes,
-                line_offset=start_line,
-            )
-            facts_acc = ExtractionFacts(
-                requests=facts_acc.requests + file_facts.requests,
-                bases=facts_acc.bases + file_facts.bases,
-                aliases=facts_acc.aliases + file_facts.aliases,
-            )
-        return facts_acc
