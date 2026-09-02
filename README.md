@@ -2,11 +2,9 @@
 
 # TraceSurface
 
-**发现藏在前端代码里的 API，验证未授权访问风险。**
+**动态浏览器追踪 × JavaScript AST 分析。动静结合，从JS中还原完整的API。**
 
-动态浏览器追踪 × JavaScript AST 分析。动静结合，从JS中还原完整的API。
-
-[快速开始](#快速开始) · [实战](#实战只扫登录页) · [核心能力](#核心能力) · [工作原理](#工作原理) · [English](https://github.com/pis10/TraceSurface/blob/main/README.en.md)
+[快速开始](#快速开始) · [实战](#实战演示扫描站点登录页) · [核心能力](#核心能力) · [工作原理](#工作原理) · [English](https://github.com/pis10/TraceSurface/blob/main/README.en.md)
 
 <p>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white">

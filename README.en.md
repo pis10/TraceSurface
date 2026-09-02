@@ -4,7 +4,7 @@
 
 **Dynamic browser tracing × JavaScript AST analysis. Reconstruct the complete API surface from JavaScript.**
 
-[Quick Start](#quick-start) · [Case Study](#case-study-login-page-only) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
+[Quick Start](#quick-start) · [Case Study](#case-study-scanning-a-login-page) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
 
 <p>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white">
@@ -17,9 +17,9 @@ TraceSurface is built for penetration testing, security assessment, and API inve
 
 **Core principle: runtime requests confirm; static analysis expands. Every API carries evidence, and every inference tier has a reason.**
 
-## Case Study: Login Page Only
+## Case Study: Scanning a Login Page
 
-Give TraceSurface only the official RuoYi Vue login page — no credentials, no access to the admin UI:
+The target is the official RuoYi Vue login page. Without logging into the admin UI, recover the backend APIs from the frontend code:
 
 ```bash
 tracesurface scan https://vue.ruoyi.vip/login
@@ -30,8 +30,6 @@ tracesurface scan https://vue.ruoyi.vip/login
 The page triggers only `GET /prod-api/captchaImage`, but that single request provides the decisive coordinates. TraceSurface aligns it precisely with the `/captchaImage` call site in `app.js`, establishes `/prod-api` as the prefix, then traverses the webpack entry and lazy chunks to recover APIs used only after login:
 
 ![Scan of the RuoYi demo](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/scan-ruoyi.png)
-
-47.7 seconds later, one login page has unfolded into the complete frontend API surface:
 
 | Metric | Result |
 | --- | --- |
@@ -47,7 +45,7 @@ One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, m
 ![Report: APIs recovered from the login page](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
 
 > [!NOTE]
-> 79 of the 88 2xx responses returned `code: 401` in the body. HTTP 2xx means the request was accepted, not that it succeeded — read the response before calling it unauthorized access.
+> 79 of the 88 2xx responses returned `code: 401` in the body.
 
 ## Capabilities
 
