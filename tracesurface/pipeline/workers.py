@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
 from playwright.async_api import Browser
 
-from tracesurface.collection.deps import HttpTextClient
+from tracesurface.collection.deps import HttpTextClient, run_cpu
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.models import CollectionBundle, InferenceResult
-from tracesurface.pipeline.cpu import CpuRunner
 from tracesurface.pipeline.lifecycle import ScanLifecycle
 from tracesurface.pipeline.messages import (
     CollectedItem,
@@ -74,7 +74,7 @@ class StageWorkers:
     lifecycle: ScanLifecycle
     browser: Browser
     http: HttpTextClient
-    cpu: CpuRunner
+    cpu: ProcessPoolExecutor
     auth_state: dict[str, Any] | None = None
     headed: bool = False
 
@@ -135,7 +135,7 @@ class StageWorkers:
                 if item is None:
                     return
                 try:
-                    inference = await self.cpu.run(_analyze, item.bundle)
+                    inference = await run_cpu(self.cpu, _analyze, item.bundle)
                     await self.queues.storage.put(
                         InferredItem(
                             job=item.job,
@@ -158,7 +158,6 @@ class StageWorkers:
 
 
 def _analyze(bundle: CollectionBundle) -> InferenceResult:
-    from tracesurface.extraction.extractor import extract_collection
     from tracesurface.inference.service import infer
 
-    return infer(bundle, extract_collection(bundle))
+    return infer(bundle)

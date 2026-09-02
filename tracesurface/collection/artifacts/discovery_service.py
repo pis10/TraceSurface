@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from urllib.parse import urljoin
+
 from tracesurface.collection.artifacts.chunks.evaluator import ChunkEvaluator
-from tracesurface.collection.artifacts.chunks.url_builder import absolute_chunk_url
 from tracesurface.collection.artifacts.entry_fetcher import MFEEntryFetcher
 from tracesurface.collection.artifacts.static_analysis import (
     StaticArtifactResult,
     analyze_html_artifact,
     analyze_js_artifact,
 )
-from tracesurface.collection.discovery.explorer import ExplorerResult
+from tracesurface.collection.deps import run_cpu
 from tracesurface.collection.session import DiscoverySession
 
 
@@ -16,31 +17,17 @@ class ArtifactExplorer:
     name = "artifact"
     run_once = False
 
-    def __init__(
-        self,
-        *,
-        chunk_evaluator: ChunkEvaluator | None = None,
-        entry_fetcher: MFEEntryFetcher | None = None,
-    ) -> None:
-        self.chunk_evaluator = chunk_evaluator or ChunkEvaluator()
-        self.entry_fetcher = entry_fetcher or MFEEntryFetcher()
+    def __init__(self) -> None:
+        self.chunk_evaluator = ChunkEvaluator()
+        self.entry_fetcher = MFEEntryFetcher()
 
     async def discover(
         self,
         session: DiscoverySession,
         round_num: int = 0,
-    ) -> ExplorerResult:
+    ) -> None:
         del round_num
-
-        pre_js = set(session.js_urls)
-        pre_html = set(session.facts.html_facts)
-        pre_routes = set(session.facts.route_facts)
         await self.discover_artifacts(session)
-        return ExplorerResult(
-            new_js=len(session.js_urls - pre_js),
-            new_html=len(set(session.facts.html_facts) - pre_html),
-            new_routes=len(set(session.facts.route_facts) - pre_routes),
-        )
 
     async def discover_artifacts(self, state: DiscoverySession) -> None:
         graph = state.facts
@@ -55,12 +42,15 @@ class ArtifactExplorer:
             if url not in graph.processed_js_sources
         ]
 
+        prefixes = state.wrapper_prefixes()
         for html_url, ref in new_html_items:
-            result = await state.ports.cpu.run(
+            result = await run_cpu(
+                state.ports.cpu,
                 analyze_html_artifact,
                 ref,
                 html_url,
                 state.target_url,
+                prefixes,
             )
             self._add_result(
                 state,
@@ -72,15 +62,19 @@ class ArtifactExplorer:
             state.cache.inline_static_urls[html_url] = set(
                 result.inline_static_urls
             )
+            state.absorb_extraction(result.extraction, result.secrets)
             await self._evaluate_chunks(state, result)
             graph.processed_html_sources.add(html_url)
 
+        prefixes = state.wrapper_prefixes()
         for js_url, ref in new_js_items:
-            result = await state.ports.cpu.run(
+            result = await run_cpu(
+                state.ports.cpu,
                 analyze_js_artifact,
                 ref,
                 js_url,
                 state.target_url,
+                prefixes,
             )
             self._add_result(
                 state,
@@ -90,6 +84,7 @@ class ArtifactExplorer:
                 router_source="router_table",
             )
             state.cache.source_scans[js_url] = result.source_scan or False
+            state.absorb_extraction(result.extraction, result.secrets)
             await self._evaluate_chunks(state, result)
             graph.processed_js_sources.add(js_url)
 
@@ -145,7 +140,7 @@ class ArtifactExplorer:
                     list(plan.params),
                 )
                 urls.update(
-                    absolute_chunk_url(path, state.target_url) for path in paths
+                    _absolute_chunk_url(path, state.target_url) for path in paths
                 )
 
         state.add_js_urls(
@@ -155,5 +150,7 @@ class ArtifactExplorer:
         )
 
 
-def default_artifact_explorer() -> ArtifactExplorer:
-    return ArtifactExplorer()
+def _absolute_chunk_url(path: str, base_url: str) -> str:
+    if path.startswith("http"):
+        return path.split("?", 1)[0]
+    return urljoin(base_url + "/", path).split("?", 1)[0]

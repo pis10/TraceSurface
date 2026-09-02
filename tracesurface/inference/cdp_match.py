@@ -5,13 +5,14 @@ from dataclasses import dataclass, replace
 from urllib.parse import urlparse
 
 from tracesurface.models import (
-    ApiCandidate,
     ApiResolution,
     CallerInfo,
     CDPRequest,
     ConfirmedRequest,
+    Lit,
     RequestFact,
     SourceLocation,
+    UrlTemplate,
 )
 from tracesurface.urls import dedup_key
 
@@ -47,15 +48,11 @@ def match_cdp_ast(
 
     resolutions: list[ApiResolution] = []
     for rf in request_facts:
-        candidate = _request_fact_to_candidate(rf)
         loc = rf.location
-
         key = (loc.url, loc.line, loc.col_start)
         req = confirmed.get(key)
         if req is None:
-            resolutions.append(
-                ApiResolution(candidate=candidate, status="not_inferred")
-            )
+            resolutions.append(ApiResolution(fact=rf, grade="no-url"))
             continue
 
         request = ConfirmedRequest(
@@ -65,8 +62,8 @@ def match_cdp_ast(
         )
         resolutions.append(
             ApiResolution(
-                candidate=candidate,
-                status="confirmed",
+                fact=rf,
+                grade="runtime",
                 full_url=req.request_url or None,
                 confirmed=request,
             )
@@ -83,11 +80,6 @@ def merge_runtime_apis(
     resolutions: tuple[ApiResolution, ...],
     cdp_only: Sequence[CDPRequest],
 ) -> tuple[ApiResolution, ...]:
-    """Fold unmatched browser requests into the API inventory.
-
-    A runtime request that shares method+URL with an inferred candidate is
-    promoted to confirmed. Otherwise it is appended as its own confirmed API.
-    """
     if not cdp_only:
         return resolutions
 
@@ -98,7 +90,7 @@ def merge_runtime_apis(
         if not url:
             continue
         index_by_key.setdefault(
-            dedup_key(resolution.candidate.method or "UNKNOWN", url),
+            dedup_key(resolution.fact.method or "UNKNOWN", url),
             i,
         )
 
@@ -115,10 +107,10 @@ def merge_runtime_apis(
         idx = index_by_key.get(key)
         if idx is not None:
             current = merged[idx]
-            if current.status != "confirmed" or current.confirmed is None:
+            if current.grade != "runtime" or current.confirmed is None:
                 merged[idx] = replace(
                     current,
-                    status="confirmed",
+                    grade="runtime",
                     confirmed=confirmed,
                     full_url=req.request_url,
                 )
@@ -135,6 +127,7 @@ def _runtime_resolution(
     method = confirmed.method
     frame = req.frames[0] if req.frames else None
     parsed_path = urlparse(req.request_url).path or "/"
+    path = req.request_path or parsed_path
     location = SourceLocation(
         url=frame.url if frame else "",
         line=frame.line if frame else 0,
@@ -142,30 +135,20 @@ def _runtime_resolution(
         col_end=(frame.col + 1) if frame else 1,
     )
     return ApiResolution(
-        candidate=ApiCandidate(
-            path=req.request_path or parsed_path,
+        fact=RequestFact(
+            request_id=f"cdp:{req.dedup_key}",
             method=method,
-            pattern="cdp",
-            location=location,
+            path=path,
+            url_template=UrlTemplate((Lit(path),)),
+            client_refs=(),
             params=(),
+            location=location,
             caller=CallerInfo(),
+            pattern="cdp",
         ),
-        status="confirmed",
+        grade="runtime",
         full_url=req.request_url,
         confirmed=confirmed,
         base_source="cdp",
         binding_rule="runtime",
-    )
-
-
-def _request_fact_to_candidate(rf: RequestFact) -> ApiCandidate:
-    return ApiCandidate(
-        path=rf.path,
-        method=rf.method,
-        pattern=rf.pattern,
-        location=rf.location,
-        params=tuple(rf.params),
-        caller=rf.caller,
-        url_template=rf.url_template,
-        client_refs=rf.client_refs,
     )

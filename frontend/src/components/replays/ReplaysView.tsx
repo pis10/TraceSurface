@@ -11,7 +11,7 @@ import { KvGrid } from "@/components/shared/KvGrid";
 import { Pager } from "@/components/shared/Pager";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { bucketFromStatus, fmtBytes, fmtRelTime, TIER_HINT } from "@/lib/format";
+import { bucketFromStatus, fmtBytes, fmtRelTime, GRADE_HINT, GRADE_LABEL } from "@/lib/format";
 import { parseSearchPrefix, isFilterAtDefault, type FilterState, type SortState } from "@/lib/filters";
 import { type HighValueState } from "@/lib/high-value";
 import { requestToCurl, requestToRawHttp } from "@/lib/request";
@@ -233,7 +233,7 @@ function ReplayRow({ item, selected, delay, onClick }: { item: ReplayListItem; s
     <tr className={cn("animate-fade-up", selected && "selected")} style={{ animationDelay: delay }} onClick={onClick}>
       <td><span className={`status-cell status-${bucket}`}><span className="status-bar" />{item.error || item.status == null ? "ERR" : item.status}</span></td>
       <td><span className={`method-badge method-${item.sent_method}`}>{item.sent_method}</span></td>
-      <td>{item.inference_tier ? <span className={`tier-badge tier-${item.inference_tier}`} title={TIER_HINT}>{item.inference_tier}</span> : <span className="text-text-4">-</span>}</td>
+      <td>{item.grade ? <span className={`tier-badge tier-${item.grade}`} title={GRADE_HINT[item.grade] || ""}>{GRADE_LABEL[item.grade] || item.grade}</span> : <span className="text-text-4">-</span>}</td>
       <td className="min-w-0" title={item.sent_url}>
         <div className="flex items-center gap-1.5">
           {item.cdp_request_id ? <span className="tag shrink-0 text-brand" title="浏览器真实请求的无认证重放">NET</span> : null}
@@ -349,7 +349,7 @@ function ReplayResponse({ replay, headers, bucket, bodyRef }: { replay: ReplayDe
             { label: "Status", value: <span className={`status-${bucket}`}>{replay.error || replay.status}</span> },
             { label: "Time", value: `${replay.time_ms ?? 0} ms` },
             { label: "Length", value: fmtBytes(replay.resp_len) },
-            { label: "Tier", value: replay.inference_tier ? <span className={`tier-badge tier-${replay.inference_tier}`} title={TIER_HINT}>{replay.inference_tier}</span> : "-", hidden: !replay.inference_tier },
+            { label: "Grade", value: replay.grade ? <span className={`tier-badge tier-${replay.grade}`} title={GRADE_HINT[replay.grade] || ""}>{GRADE_LABEL[replay.grade] || replay.grade}</span> : "-", hidden: !replay.grade },
             { label: "Base 出处", value: replay.base_source, hidden: !replay.base_source },
             { label: "为何非更高 tier", value: replay.why_not_higher_tier, hidden: !replay.why_not_higher_tier },
             { label: "备注", value: "正文超 1MB，已截断展示", hidden: !replay.resp_truncated },

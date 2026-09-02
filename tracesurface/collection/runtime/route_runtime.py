@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from tracesurface.collection.discovery.explorer import ExplorerResult
 from tracesurface.collection.route import build_route_url, fill_dynamic_params
 from tracesurface.collection.runtime.cdp_trace import CDPCollectRequest, CDPTraceSession
 from tracesurface.collection.session import DiscoverySession
@@ -85,17 +84,14 @@ async def _visit_one(
         state.json_response_bodies.setdefault(url, body)
 
 
-async def visit_route_facts(
-    state: DiscoverySession,
-    tracer: CDPTraceSession | None = None,
-) -> None:
+async def visit_route_facts(state: DiscoverySession) -> None:
     candidates = [
         fact
         for fact in state.facts.route_facts.values()
         if not fact.visited and fact.attempts == 0
     ]
     candidates.sort(key=lambda fact: _route_sort_key(fact.path, fact.source))
-    cdp_tracer = tracer or CDPTraceSession()
+    cdp_tracer = CDPTraceSession()
 
     page = state.ports.page
     if page is None:
@@ -109,21 +105,10 @@ class RouteRuntimeExplorer:
     name = "route-runtime"
     run_once = False
 
-    def __init__(self, tracer: CDPTraceSession | None = None) -> None:
-        self.tracer = tracer
-
     async def discover(
         self,
         session: DiscoverySession,
         round_num: int = 0,
-    ) -> ExplorerResult:
+    ) -> None:
         del round_num
-        pre_js = set(session.js_urls)
-        pre_cdp = len(session.cdp_request_keys)
-        pre_routes = set(session.routes_visited)
-        await visit_route_facts(session, self.tracer)
-        return ExplorerResult(
-            new_js=len(session.js_urls - pre_js),
-            new_cdp=len(session.cdp_request_keys) - pre_cdp,
-            new_routes=len(session.routes_visited - pre_routes),
-        )
+        await visit_route_facts(session)

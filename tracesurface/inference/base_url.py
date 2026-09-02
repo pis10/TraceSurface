@@ -13,7 +13,15 @@ EXPR = "EXPR"
 ScopeKey: TypeAlias = tuple[str, str]
 MapKey = TypeVar("MapKey")
 
-_TIER_RANK = {"L1": 4, "L2": 3, "L3": 2, "L4": 1, None: 0}
+_GRADE_RANK = {
+    "runtime": 6,
+    "full-url": 5,
+    "L1": 4,
+    "L2": 3,
+    "L3": 2,
+    "L4": 1,
+    "no-url": 0,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,17 +90,17 @@ def build_base_url_anchors(
 ) -> BaseUrlAnchors:
     require_base, require_conf = _build_first_map(
         confirmed,
-        key_fn=lambda r: r.candidate.caller.require_id,
+        key_fn=lambda r: r.fact.caller.require_id,
         value_fn=_base_from_confirmed,
     )
     scope_base, scope_conf = _build_first_map(
         confirmed,
         key_fn=lambda r: (
             (
-                r.candidate.caller.module_id,
-                r.candidate.caller.caller_var,
+                r.fact.caller.module_id,
+                r.fact.caller.caller_var,
             )
-            if r.candidate.caller.module_id and r.candidate.caller.caller_var
+            if r.fact.caller.module_id and r.fact.caller.caller_var
             else None
         ),
         value_fn=_base_from_confirmed,
@@ -100,16 +108,16 @@ def build_base_url_anchors(
     handle_base, handle_conf = _build_first_map(
         confirmed,
         key_fn=lambda r: (
-            r.candidate.caller.caller_var
-            if r.candidate.caller.caller_var
-            and _is_distinctive_handle(r.candidate.caller.caller_var)
+            r.fact.caller.caller_var
+            if r.fact.caller.caller_var
+            and _is_distinctive_handle(r.fact.caller.caller_var)
             else None
         ),
         value_fn=_base_from_confirmed,
     )
     jsurl_bases = _build_all_map(
         confirmed,
-        key_fn=lambda r: r.candidate.location.url,
+        key_fn=lambda r: r.fact.location.url,
         value_fn=_base_from_confirmed,
     )
 
@@ -203,10 +211,10 @@ def propagate_methods(
         confirmed,
         key_fn=lambda r: (
             (
-                r.candidate.caller.require_id,
-                r.candidate.caller.caller_prop,
+                r.fact.caller.require_id,
+                r.fact.caller.caller_prop,
             )
-            if r.candidate.caller.require_id and r.candidate.caller.caller_prop
+            if r.fact.caller.require_id and r.fact.caller.caller_prop
             else None
         ),
         value_fn=lambda r: r.confirmed.method if r.confirmed else None,
@@ -217,11 +225,11 @@ def propagate_methods(
 
     propagated: list[ApiResolution] = []
     for resolution in resolutions:
-        if resolution.candidate.method != "UNKNOWN":
+        if resolution.fact.method != "UNKNOWN":
             propagated.append(resolution)
             continue
 
-        caller = resolution.candidate.caller
+        caller = resolution.fact.caller
         key = (caller.require_id, caller.caller_prop)
         method = prop_method.get(key) if key[0] and key[1] else None
         propagated.append(_with_method(resolution, method) if method else resolution)
@@ -308,7 +316,7 @@ def _build_all_map(
 def _base_from_confirmed(resolution: ApiResolution) -> str | None:
     if not resolution.confirmed:
         return None
-    return compute_base_url(resolution.confirmed.url, resolution.candidate.path)
+    return compute_base_url(resolution.confirmed.url, resolution.fact.path)
 
 
 _GENERIC_VERBS = {
@@ -352,30 +360,30 @@ def _build_full_url(base_url: str, ast_path: str) -> str:
 
 
 def _with_method(resolution: ApiResolution, method: str) -> ApiResolution:
-    candidate = replace(resolution.candidate, method=method)
-    return replace(resolution, candidate=candidate)
+    fact = replace(resolution.fact, method=method)
+    return replace(resolution, fact=fact)
 
 
 def _dedup_in_scan(resolutions: list[ApiResolution]) -> list[ApiResolution]:
     best: dict[str, ApiResolution] = {}
     for resolution in resolutions:
-        if resolution.status == "confirmed" or not resolution.full_url:
+        if resolution.grade == "runtime" or not resolution.full_url:
             continue
-        key = dedup_key(resolution.candidate.method or "UNKNOWN", resolution.full_url)
+        key = dedup_key(resolution.fact.method or "UNKNOWN", resolution.full_url)
         cur = best.get(key)
 
-        if cur is None or _TIER_RANK.get(resolution.tier, 0) > _TIER_RANK.get(
-            cur.tier, 0
+        if cur is None or _GRADE_RANK.get(resolution.grade, 0) > _GRADE_RANK.get(
+            cur.grade, 0
         ):
             best[key] = resolution
 
     seen: set[str] = set()
     out: list[ApiResolution] = []
     for resolution in resolutions:
-        if resolution.status == "confirmed" or not resolution.full_url:
+        if resolution.grade == "runtime" or not resolution.full_url:
             out.append(resolution)
             continue
-        key = dedup_key(resolution.candidate.method or "UNKNOWN", resolution.full_url)
+        key = dedup_key(resolution.fact.method or "UNKNOWN", resolution.full_url)
         if key in seen:
             continue
         seen.add(key)

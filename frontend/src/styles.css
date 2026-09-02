@@ -617,6 +617,16 @@ select {
   background: rgba(225, 29, 72, 0.08);
 }
 
+.tier-runtime {
+  color: var(--green);
+  border-color: rgba(5, 150, 105, 0.28);
+  background: rgba(5, 150, 105, 0.09);
+}
+.tier-full-url {
+  color: var(--blue);
+  border-color: rgba(2, 132, 199, 0.28);
+  background: rgba(2, 132, 199, 0.1);
+}
 .tier-L1 {
   color: var(--green);
   border-color: rgba(5, 150, 105, 0.28);
@@ -636,6 +646,11 @@ select {
   color: var(--text-4);
   border-color: var(--line-2);
   background: rgba(20, 28, 44, 0.05);
+}
+.tier-no-url {
+  color: var(--text-4);
+  border-color: var(--line-2);
+  background: rgba(20, 28, 44, 0.04);
 }
 
 @keyframes spectrum-pan {

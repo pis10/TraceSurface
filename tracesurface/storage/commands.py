@@ -22,6 +22,12 @@ class PurgeAll: ...
 
 
 @dataclass(frozen=True, slots=True)
+class InferenceWriteResult:
+    resolution_ids: dict[int, int]
+    cdp_ids: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
 class SaveInference:
     scan_id: int
     inference: InferenceResult

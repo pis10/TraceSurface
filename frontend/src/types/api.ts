@@ -6,10 +6,13 @@ export type Stats = {
   s3xx: number;
   s4xx: number;
   s5xx: number;
+  t_runtime: number;
+  t_full: number;
   t_l1: number;
   t_l2: number;
   t_l3: number;
   t_l4: number;
+  t_none: number;
 };
 
 export type DomainSummary = {
@@ -25,6 +28,8 @@ export type TargetSummary = {
   last_finished_at?: number | null;
 };
 
+export type ApiGrade = "runtime" | "full-url" | "L1" | "L2" | "L3" | "L4" | "no-url";
+
 export type ReplayListItem = {
   id: number;
   sent_url: string;
@@ -33,7 +38,7 @@ export type ReplayListItem = {
   error?: string | null;
   resp_ct?: string | null;
   resp_len?: number | null;
-  inference_tier?: "L1" | "L2" | "L3" | "L4" | null;
+  grade?: ApiGrade | null;
   domain?: string | null;
   resp_snippet?: string | null;
 
@@ -58,14 +63,11 @@ export type ReplayDetail = ReplayListItem & {
   why_not_higher_tier?: string | null;
 };
 
-export type ApiStatus = "confirmed" | "inferred" | "ast_full" | "not_inferred";
-
 export type ResolutionListItem = {
   id: number;
   method: string;
   full_url: string;
-  category: ApiStatus;
-  inference_tier?: "L1" | "L2" | "L3" | "L4" | null;
+  grade?: ApiGrade | null;
   base_source?: string | null;
   binding_rule?: string | null;
   cdp_request_id?: number | null;

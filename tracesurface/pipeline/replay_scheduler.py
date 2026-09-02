@@ -9,14 +9,14 @@ from tracesurface.models import ReplayRecord, ReplayResult
 from tracesurface.pipeline.messages import ReplayDoneItem, ReplayPendingItem
 from tracesurface.replay.dedup import ReplayDedupStore
 from tracesurface.storage.commands import Flush, SaveReplayRecord
-from tracesurface.storage.sqlite.writer import StorageWriterPort
+from tracesurface.storage.sqlite.writer import StorageWriter
 
 
 class ReplayScheduler:
     def __init__(
         self,
         *,
-        storage_writer: StorageWriterPort,
+        storage_writer: StorageWriter,
         replay_concurrency: int,
         output_queue: asyncio.Queue[Any],
         run_replay_job: Callable[..., Awaitable[ReplayResult]],

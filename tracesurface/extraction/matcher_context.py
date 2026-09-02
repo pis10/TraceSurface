@@ -19,8 +19,15 @@ from tracesurface.jsast import (
     get_object_props,
     node_text,
 )
-from tracesurface.models import APIMatch, Param
-from tracesurface.policies import ThirdPartyPolicy
+from tracesurface.models import (
+    CallerInfo,
+    Lit,
+    Param,
+    RequestFact,
+    SourceLocation,
+    UrlTemplate,
+)
+from tracesurface.policies import DEFAULT_STATIC_RESOURCE_EXTS, ThirdPartyPolicy
 
 EXPR = "EXPR"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
@@ -139,24 +146,36 @@ class MatcherContext:
         method: str,
         params: list[Param],
         url_node: Node | None = None,
-    ) -> APIMatch:
+    ) -> RequestFact:
         if method and method.lower() in HTTP_METHODS:
             final_method = method.upper()
         else:
             final_method = "UNKNOWN"
 
-        match = APIMatch(
-            path=path,
-            method=final_method,
-            line=node.start_point[0],
-            col_start=node.start_point[1],
-            col_end=node.end_point[1],
-            params=params,
+        template = (
+            resolve_template(url_node, self.resolve_ctx)
+            if url_node is not None
+            else None
         )
+        if template is None:
+            template = UrlTemplate((Lit(path),))
 
-        if url_node is not None:
-            match.url_template = resolve_template(url_node, self.resolve_ctx)
-        return match
+        return RequestFact(
+            request_id="",
+            method=final_method,
+            path=path,
+            url_template=template,
+            client_refs=(),
+            params=tuple(params),
+            location=SourceLocation(
+                url="",
+                line=node.start_point[0],
+                col_start=node.start_point[1],
+                col_end=node.end_point[1],
+            ),
+            caller=CallerInfo(),
+            pattern="",
+        )
 
 
 def unwrap_json_stringify(node: Node | None) -> Node | None:
@@ -256,33 +275,13 @@ def get_callee_name(func_node: Node | None) -> str:
     return ""
 
 
-STATIC_EXTENSIONS = frozenset(
-    {
-        ".js",
-        ".css",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".gif",
-        ".svg",
-        ".ico",
-        ".webp",
-        ".woff",
-        ".woff2",
-        ".ttf",
-        ".eot",
-        ".map",
-        ".mp3",
-        ".mp4",
-        ".html",
-        ".htm",
-        ".shtml",
-        ".zip",
-        ".gz",
-        ".yaml",
-        ".yml",
-    }
-)
+_NON_API_EXTS = DEFAULT_STATIC_RESOURCE_EXTS | {
+    ".html",
+    ".htm",
+    ".shtml",
+    ".yaml",
+    ".yml",
+}
 
 _MIME_PREFIXES = (
     "application/",
@@ -335,7 +334,7 @@ def maybe_url(s: str) -> bool:
         return False
 
     clean_ext = s.rstrip("/").split("?")[0].split("#")[0]
-    if any(clean_ext.endswith(ext) for ext in STATIC_EXTENSIONS):
+    if any(clean_ext.endswith(ext) for ext in _NON_API_EXTS):
         return False
 
     if s.startswith("http"):

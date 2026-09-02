@@ -78,11 +78,13 @@ def record_scan_success(
 
     metrics = [
         _metric("调用点", p.summary.ast_total),
-        f"[tracesurface.dim]已确认[/] [green]{p.summary.confirmed_count}[/]",
-        _metric("仅CDP", p.summary.cdp_only_count),
+        f"[tracesurface.dim]运行时[/] [green]{p.summary.runtime_count}[/]",
+        _metric("完整URL", p.summary.full_url_count),
         f"[tracesurface.dim]分层[/] L1 {p.summary.tier_l1} / "
         f"L2 {p.summary.tier_l2} / L3 {p.summary.tier_l3} / L4 {p.summary.tier_l4}",
     ]
+    if p.summary.no_url_count:
+        metrics.append(_metric("无URL", p.summary.no_url_count))
 
     if p.summary.secret_count:
         metrics.append(f"[tracesurface.dim]敏感[/] [red]{p.summary.secret_count}[/]")
@@ -149,12 +151,13 @@ def render_summary(
     summaries = [r.summary for r in results if r.summary is not None]
 
     sum_ast = sum(s.ast_total for s in summaries)
-    sum_conf = sum(s.confirmed_count for s in summaries)
-    sum_cdp_only = sum(s.cdp_only_count for s in summaries)
+    sum_runtime = sum(s.runtime_count for s in summaries)
+    sum_full = sum(s.full_url_count for s in summaries)
     l1 = sum(s.tier_l1 for s in summaries)
     l2 = sum(s.tier_l2 for s in summaries)
     l3 = sum(s.tier_l3 for s in summaries)
     l4 = sum(s.tier_l4 for s in summaries)
+    no_url = sum(s.no_url_count for s in summaries)
     secrets = sum(s.secret_count for s in summaries)
 
     site_value = f"{ok}/{total} 成功"
@@ -170,12 +173,18 @@ def render_summary(
             ui.join_dot(
                 [
                     _metric("合计", sum_ast),
-                    f"[tracesurface.dim]已确认[/] [green]{sum_conf}[/]",
-                    _metric("仅CDP", sum_cdp_only),
+                    f"[tracesurface.dim]运行时[/] [green]{sum_runtime}[/]",
+                    _metric("完整URL", sum_full),
                 ]
             ),
         ),
-        ("分层", ui.join_dot([f"L1 {l1}", f"L2 {l2}", f"L3 {l3}", f"L4 {l4}"])),
+        (
+            "把握度",
+            ui.join_dot(
+                [f"L1 {l1}", f"L2 {l2}", f"L3 {l3}", f"L4 {l4}"]
+                + ([f"无URL {no_url}"] if no_url else [])
+            ),
+        ),
     ]
 
     if do_replay:

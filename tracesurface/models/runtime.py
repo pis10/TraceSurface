@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
 from tracesurface.frozen import FrozenDict
-from tracesurface.models.analysis import ApiResolution, ExtractionFacts
+from tracesurface.models.analysis import ApiGrade, ApiResolution, ExtractionFacts
 from tracesurface.urls import dedup_key
 
 
@@ -45,10 +45,7 @@ class CDPResult:
     requests: list[CDPRequest] = field(default_factory=list)
     html_content: str = ""
     json_response_bodies: dict[str, str] = field(default_factory=dict)
-    dropped_no_stack_count: int = 0
-    dropped_no_stack_samples: list[str] = field(default_factory=list)
     timed_out: bool = False
-    timeout_reasons: list[str] = field(default_factory=list)
     collection_error: str = ""
 
 
@@ -114,17 +111,17 @@ class ScanWarning:
 class ScanSummary:
     js_count: int = 0
     ast_total: int = 0
-    confirmed_count: int = 0
+    runtime_count: int = 0
+    full_url_count: int = 0
     route_count: int = 0
     visited_route_count: int = 0
     productive_route_count: int = 0
     cdp_request_count: int = 0
-    cdp_only_count: int = 0
-    not_inferred_count: int = 0
     tier_l1: int = 0
     tier_l2: int = 0
     tier_l3: int = 0
     tier_l4: int = 0
+    no_url_count: int = 0
     secret_count: int = 0
     warnings: Sequence[ScanWarning] = ()
     skipped: bool = False
@@ -142,42 +139,19 @@ class ScanResult:
     route_count: int = 0
     visited_route_count: int = 0
     productive_route_count: int = 0
-    discovery_stats: Mapping[str, int] = field(default_factory=dict)
-    base_urls: frozenset[str] = frozenset()
     apis: Sequence[ApiResolution] = ()
-    cdp_only: Sequence[CDPRequest] = ()
     all_cdp_requests: Sequence[CDPRequest] = ()
     secrets: Sequence[SecretMatch] = ()
     warnings: Sequence[ScanWarning] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "discovery_stats", FrozenDict(self.discovery_stats))
-        object.__setattr__(self, "base_urls", frozenset(self.base_urls))
         object.__setattr__(self, "apis", tuple(self.apis))
-        object.__setattr__(self, "cdp_only", tuple(self.cdp_only))
         object.__setattr__(self, "all_cdp_requests", tuple(self.all_cdp_requests))
         object.__setattr__(self, "secrets", tuple(self.secrets))
         object.__setattr__(self, "warnings", tuple(self.warnings))
 
-    @property
-    def confirmed(self) -> tuple[ApiResolution, ...]:
-        return tuple(api for api in self.apis if api.status == "confirmed")
-
-    @property
-    def inferred(self) -> tuple[ApiResolution, ...]:
-        return tuple(api for api in self.apis if api.status == "inferred")
-
-    @property
-    def ast_full_url(self) -> tuple[ApiResolution, ...]:
-        return tuple(api for api in self.apis if api.status == "ast_full")
-
-    @property
-    def not_inferred(self) -> tuple[ApiResolution, ...]:
-        return tuple(api for api in self.apis if api.status == "not_inferred")
-
-    @property
-    def confirmed_count(self) -> int:
-        return len(self.confirmed)
+    def grade_count(self, grade: ApiGrade) -> int:
+        return sum(1 for api in self.apis if api.grade == grade)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,8 +161,9 @@ class CollectionBundle:
     html_pages: Mapping[str, SourceRef] = field(default_factory=dict)
     js_sources: Mapping[str, SourceRef] = field(default_factory=dict)
     cdp_requests: Sequence[CDPRequest] = ()
-    discovery_stats: Mapping[str, int] = field(default_factory=dict)
     route_facts: Sequence[RouteFact] = ()
+    extraction: ExtractionFacts = field(default_factory=ExtractionFacts)
+    secrets: Sequence[SecretMatch] = ()
     warnings: Sequence[ScanWarning] = ()
     skipped: bool = False
 
@@ -196,8 +171,8 @@ class CollectionBundle:
         object.__setattr__(self, "html_pages", FrozenDict(self.html_pages))
         object.__setattr__(self, "js_sources", FrozenDict(self.js_sources))
         object.__setattr__(self, "cdp_requests", tuple(self.cdp_requests))
-        object.__setattr__(self, "discovery_stats", FrozenDict(self.discovery_stats))
         object.__setattr__(self, "route_facts", tuple(self.route_facts))
+        object.__setattr__(self, "secrets", tuple(self.secrets))
         object.__setattr__(self, "warnings", tuple(self.warnings))
 
 

@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from urllib.parse import urlparse
 
-from tracesurface.collection.discovery.explorer import Explorer, ExplorerResult
+from tracesurface.collection.discovery.explorer import Explorer
 from tracesurface.collection.session import DiscoverySession
 from tracesurface.config import CollectionSettings
 
@@ -26,9 +26,7 @@ class DiscoveryEngine:
         self.before_round = before_round
         self.after_run = after_run
 
-    async def run(self, session: DiscoverySession) -> dict[str, int]:
-        stats: dict[str, int] = {}
-
+    async def run(self, session: DiscoverySession) -> None:
         run_once_done: set[str] = set()
 
         for round_num in range(self.settings.discovery_max_rounds):
@@ -39,8 +37,7 @@ class DiscoveryEngine:
             for explorer in self.explorers:
                 if explorer.run_once and explorer.name in run_once_done:
                     continue
-                result = await self._run_explorer(session, explorer, round_num)
-                stats[explorer.name] = stats.get(explorer.name, 0) + result.new_js
+                await self._run_explorer(session, explorer, round_num)
                 if explorer.run_once:
                     run_once_done.add(explorer.name)
 
@@ -50,16 +47,14 @@ class DiscoveryEngine:
         if self.after_run is not None:
             await self.after_run(session)
 
-        return stats
-
     async def _run_explorer(
         self,
         session: DiscoverySession,
         explorer,
         round_num: int,
-    ) -> ExplorerResult:
+    ) -> None:
         try:
-            return await explorer.discover(session, round_num)
+            await explorer.discover(session, round_num)
         except RecursionError as exc:
             session.record_event(
                 "recursion_error",
@@ -76,8 +71,6 @@ class DiscoveryEngine:
                 round=round_num,
                 detail=repr(exc),
             )
-
-        return ExplorerResult()
 
 
 async def download_js_files(
@@ -111,18 +104,13 @@ async def download_js_files(
 
 
 def default_explorers() -> tuple[Explorer, ...]:
-    from tracesurface.collection.artifacts.discovery_service import (
-        default_artifact_explorer,
-    )
+    from tracesurface.collection.artifacts.discovery_service import ArtifactExplorer
     from tracesurface.collection.runtime.route_runtime import RouteRuntimeExplorer
 
-    return (default_artifact_explorer(), RouteRuntimeExplorer())
+    return (ArtifactExplorer(), RouteRuntimeExplorer())
 
 
-async def run_discovery_loop(
-    session: DiscoverySession,
-    explorers: Sequence[Explorer] | None = None,
-) -> dict[str, int]:
+async def run_discovery_loop(session: DiscoverySession) -> None:
     parsed = urlparse(session.target_url)
     referer = f"{parsed.scheme}://{parsed.netloc}/"
 
@@ -131,8 +119,8 @@ async def run_discovery_loop(
         if pending:
             await download_js_files(current, pending, referer=referer)
 
-    return await DiscoveryEngine(
-        default_explorers() if explorers is None else explorers,
+    await DiscoveryEngine(
+        default_explorers(),
         session.settings,
         before_round=lambda current, _round: download_pending(current),
         after_run=download_pending,

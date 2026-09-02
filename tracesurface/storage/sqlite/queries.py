@@ -8,20 +8,22 @@ from typing import Any
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.storage.sqlite.connection import connect, get_home
 
-_RESOLUTION_TIER_ORDER = (
-    "CASE r.inference_tier WHEN 'L1' THEN 1 WHEN 'L2' THEN 2 "
-    "WHEN 'L3' THEN 3 WHEN 'L4' THEN 4 ELSE 5 END, r.id DESC"
+_RESOLUTION_GRADE_ORDER = (
+    "CASE r.grade WHEN 'runtime' THEN 1 WHEN 'full-url' THEN 2 "
+    "WHEN 'L1' THEN 3 WHEN 'L2' THEN 4 WHEN 'L3' THEN 5 WHEN 'L4' THEN 6 "
+    "ELSE 7 END, r.id DESC"
 )
+
+_GRADES = ("runtime", "full-url", "L1", "L2", "L3", "L4", "no-url")
 
 
 def query_resolutions(
     *,
     target: str = "",
     methods: list[str] | None = None,
-    tiers: list[str] | None = None,
-    statuses: list[str] | None = None,
+    grades: list[str] | None = None,
     search: str = "",
-    sort: str = "tier",
+    sort: str = "grade",
     offset: int = 0,
     limit: int = 50,
 ) -> tuple[int, list[dict[str, Any]]]:
@@ -34,22 +36,11 @@ def query_resolutions(
         ph = ",".join("?" * len(methods))
         wheres.append(f"s.method IN ({ph})")
         params.extend(methods)
-    if tiers:
-        known_tiers = {"L1", "L2", "L3", "L4"}
-        sel = [t for t in tiers if t in known_tiers]
-        if sel and set(sel) != known_tiers:
+    if grades:
+        sel = [g for g in grades if g in _GRADES]
+        if sel and set(sel) != set(_GRADES):
             ph = ",".join("?" * len(sel))
-            wheres.append(f"r.inference_tier IN ({ph})")
-            params.extend(sel)
-    if statuses:
-        sel = [
-            s
-            for s in statuses
-            if s in {"confirmed", "inferred", "ast_full", "not_inferred"}
-        ]
-        if sel:
-            ph = ",".join("?" * len(sel))
-            wheres.append(f"r.category IN ({ph})")
+            wheres.append(f"r.grade IN ({ph})")
             params.extend(sel)
     if search:
         wheres.append("(r.full_url LIKE ? OR s.source_js LIKE ?)")
@@ -57,14 +48,14 @@ def query_resolutions(
         params.extend([kw, kw])
     where_sql = " AND ".join(wheres) if wheres else "1=1"
 
-    order = _RESOLUTION_TIER_ORDER if sort == "tier" else "r.id DESC"
+    order = _RESOLUTION_GRADE_ORDER if sort == "grade" else "r.id DESC"
 
     base = (
         f"FROM api_resolutions r JOIN api_sinks s ON s.id = r.sink_id WHERE {where_sql}"
     )
     count_sql = f"SELECT COUNT(*) {base}"
     select_sql = (
-        "SELECT r.id, s.method, r.full_url, r.category, r.inference_tier, "
+        "SELECT r.id, s.method, r.full_url, r.grade, "
         "r.base_source, r.binding_rule, "
         "(SELECT e.evidence_id FROM resolution_evidence e "
         " WHERE e.resolution_id = r.id AND e.evidence_kind = 'cdp_request' "
@@ -142,7 +133,7 @@ def query_replays(
     methods: list[str] | None = None,
     buckets: list[str] | None = None,
     resp_cts: list[str] | None = None,
-    tiers: list[str] | None = None,
+    grades: list[str] | None = None,
     origins: list[str] | None = None,
     deny_keywords: list[str] | None = None,
     sort: str = "-created_at",
@@ -178,12 +169,11 @@ def query_replays(
             clauses.append("(resp_ct IS NULL OR resp_ct NOT IN ('json','html','text'))")
         if clauses:
             wheres.append("(" + " OR ".join(clauses) + ")")
-    if tiers:
-        known_tiers = {"L1", "L2", "L3", "L4"}
-        selected = [t for t in tiers if t in known_tiers]
-        if selected and set(selected) != known_tiers:
+    if grades:
+        selected = [g for g in grades if g in _GRADES]
+        if selected and set(selected) != set(_GRADES):
             ph = ",".join("?" * len(selected))
-            wheres.append(f"inference_tier IN ({ph})")
+            wheres.append(f"grade IN ({ph})")
             params.extend(selected)
     if origins:
         want_cdp = "cdp" in origins
@@ -223,7 +213,7 @@ def query_replays(
 
     select_sql = (
         f"SELECT id, sent_url, sent_method, status, resp_ct, resp_len, "
-        f"inference_tier, domain, cdp_request_id, "
+        f"grade, domain, cdp_request_id, "
         f"SUBSTR(resp_snippet, 1, 256) AS resp_snippet "
         f"FROM verifications WHERE {where_sql} "
         f"ORDER BY {col} {direction}, id DESC LIMIT ? OFFSET ?"
@@ -493,11 +483,13 @@ def query_stats() -> dict[str, int]:
             SUM(CASE WHEN status>=300 AND status<400 THEN 1 ELSE 0 END) AS s3xx,
             SUM(CASE WHEN status>=400 AND status<500 THEN 1 ELSE 0 END) AS s4xx,
             SUM(CASE WHEN status>=500              THEN 1 ELSE 0 END)   AS s5xx,
-            SUM(CASE WHEN inference_tier='L0'      THEN 1 ELSE 0 END)   AS t_l0,
-            SUM(CASE WHEN inference_tier='L1'      THEN 1 ELSE 0 END)   AS t_l1,
-            SUM(CASE WHEN inference_tier='L2'      THEN 1 ELSE 0 END)   AS t_l2,
-            SUM(CASE WHEN inference_tier='L3'      THEN 1 ELSE 0 END)   AS t_l3,
-            SUM(CASE WHEN inference_tier='L4'      THEN 1 ELSE 0 END)   AS t_l4
+            SUM(CASE WHEN grade='runtime' THEN 1 ELSE 0 END)   AS t_runtime,
+            SUM(CASE WHEN grade='full-url' THEN 1 ELSE 0 END)  AS t_full,
+            SUM(CASE WHEN grade='L1'      THEN 1 ELSE 0 END)   AS t_l1,
+            SUM(CASE WHEN grade='L2'      THEN 1 ELSE 0 END)   AS t_l2,
+            SUM(CASE WHEN grade='L3'      THEN 1 ELSE 0 END)   AS t_l3,
+            SUM(CASE WHEN grade='L4'      THEN 1 ELSE 0 END)   AS t_l4,
+            SUM(CASE WHEN grade='no-url'  THEN 1 ELSE 0 END)   AS t_none
         FROM verifications
         WHERE status IS NOT NULL
     """
@@ -519,11 +511,13 @@ def query_stats() -> dict[str, int]:
             "s3xx": r["s3xx"] or 0,
             "s4xx": r["s4xx"] or 0,
             "s5xx": r["s5xx"] or 0,
-            "t_l0": r["t_l0"] or 0,
+            "t_runtime": r["t_runtime"] or 0,
+            "t_full": r["t_full"] or 0,
             "t_l1": r["t_l1"] or 0,
             "t_l2": r["t_l2"] or 0,
             "t_l3": r["t_l3"] or 0,
             "t_l4": r["t_l4"] or 0,
+            "t_none": r["t_none"] or 0,
         }
     finally:
         conn.close()

@@ -34,16 +34,14 @@ CREATE TABLE api_resolutions (
     sink_id             INTEGER NOT NULL REFERENCES api_sinks(id),
     scan_id             INTEGER NOT NULL REFERENCES scans(id),
     full_url            TEXT NOT NULL,
-    category            TEXT NOT NULL,
-    inference_tier      TEXT,
+    grade               TEXT NOT NULL,
     base_source         TEXT,
     binding_rule        TEXT,
     why_not_higher_tier TEXT
 );
 CREATE INDEX idx_api_resolutions_scan ON api_resolutions(scan_id);
 CREATE INDEX idx_api_resolutions_sink ON api_resolutions(sink_id);
-CREATE INDEX idx_api_resolutions_tier ON api_resolutions(inference_tier);
-CREATE INDEX idx_api_resolutions_cat ON api_resolutions(category);
+CREATE INDEX idx_api_resolutions_grade ON api_resolutions(grade);
 
 CREATE TABLE resolution_evidence (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +93,7 @@ CREATE TABLE verifications (
     time_ms        INTEGER,
     error          TEXT,
     created_at     INTEGER NOT NULL,
-    inference_tier TEXT,
+    grade          TEXT,
     base_source    TEXT,
     binding_rule   TEXT,
     why_not_higher_tier TEXT
@@ -105,7 +103,7 @@ CREATE INDEX idx_verifications_cdp ON verifications(cdp_request_id);
 CREATE INDEX idx_verifications_domain ON verifications(domain);
 CREATE INDEX idx_verifications_status ON verifications(status);
 CREATE INDEX idx_verifications_scan ON verifications(scan_id);
-CREATE INDEX idx_verifications_tier ON verifications(inference_tier);
+CREATE INDEX idx_verifications_grade ON verifications(grade);
 CREATE INDEX idx_verifications_dedup ON verifications(sent_method, sent_url);
 
 CREATE TABLE secrets (

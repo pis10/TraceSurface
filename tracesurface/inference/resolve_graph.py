@@ -11,10 +11,10 @@ from tracesurface.inference.base_url import (
 )
 from tracesurface.inference.client_graph import ClientGraph, ClientKey
 from tracesurface.models import (
+    ApiGrade,
     ApiResolution,
     BaseFact,
     EnvChoice,
-    InferenceTier,
     Lit,
     RefHole,
     ResolvedValue,
@@ -34,7 +34,7 @@ def resolve_graph(
     client_graph: ClientGraph,
     base_facts: tuple[BaseFact, ...],
     origin: str,
-) -> tuple[set[str], tuple[ApiResolution, ...]]:
+) -> tuple[ApiResolution, ...]:
     normalized = [_normalize_initial(r) for r in resolutions]
 
     base_by_canon = _bases_by_canonical(normalized, client_graph, base_facts, origin)
@@ -44,15 +44,15 @@ def resolve_graph(
     if anchors.origin:
         pool = pool | {anchors.origin}
     if not pool:
-        return set(), tuple(normalized)
+        return tuple(normalized)
 
     out: list[ApiResolution] = []
     for resolution in normalized:
-        if resolution.full_url or resolution.status == "confirmed":
+        if resolution.full_url or resolution.grade == "runtime":
             out.append(resolution)
             continue
 
-        caller = resolution.candidate.caller
+        caller = resolution.fact.caller
 
         base, rule = _unique_anchor(caller, anchors)
         if base:
@@ -98,7 +98,7 @@ def resolve_graph(
             )
             continue
 
-        js_url = resolution.candidate.location.url
+        js_url = resolution.fact.location.url
         if js_url and anchors.jsurl_bases.get(js_url):
             out.extend(
                 _fanout_clone(
@@ -115,11 +115,11 @@ def resolve_graph(
             _global_pool_resolution(resolution, base, anchors) for base in sorted(pool)
         )
 
-    return pool, tuple(out)
+    return tuple(out)
 
 
 def _normalize_initial(resolution: ApiResolution) -> ApiResolution:
-    if resolution.status == "confirmed":
+    if resolution.grade == "runtime":
         if resolution.confirmed and not resolution.full_url:
             return replace(resolution, full_url=resolution.confirmed.url)
         return resolution
@@ -127,14 +127,13 @@ def _normalize_initial(resolution: ApiResolution) -> ApiResolution:
     if resolution.full_url:
         return resolution
 
-    if resolution.candidate.path.startswith("http"):
+    if resolution.fact.path.startswith("http"):
         return replace(
             resolution,
-            status="ast_full",
-            full_url=resolution.candidate.path,
-            tier="L1",
-            base_source="ast_full",
-            binding_rule="ast_full_url",
+            grade="full-url",
+            full_url=resolution.fact.path,
+            base_source="source",
+            binding_rule="full_url",
         )
     return resolution
 
@@ -142,17 +141,16 @@ def _normalize_initial(resolution: ApiResolution) -> ApiResolution:
 def _bound(
     resolution: ApiResolution,
     base: str,
-    tier: InferenceTier,
+    grade: ApiGrade,
     base_source: str,
     binding_rule: str,
     why_not: str | None = None,
 ) -> ApiResolution:
     return replace(
         resolution,
-        status="inferred",
+        grade=grade,
         base_url=base,
-        full_url=_build_full_url(base, resolution.candidate.path),
-        tier=tier,
+        full_url=_build_full_url(base, resolution.fact.path),
         base_source=base_source,
         binding_rule=binding_rule,
         why_not_higher_tier=why_not,
@@ -169,10 +167,9 @@ def _fanout_clone(
     return [
         replace(
             resolution,
-            status="inferred",
+            grade="L2",
             base_url=base,
-            full_url=_build_full_url(base, resolution.candidate.path),
-            tier="L2",
+            full_url=_build_full_url(base, resolution.fact.path),
             base_source=anchors.source_of(base) or "fanout",
             binding_rule=binding_rule,
             why_not_higher_tier=why_not,
@@ -199,10 +196,9 @@ def _global_pool_resolution(
     is_origin_only = base == anchors.origin and not src
     return replace(
         resolution,
-        status="inferred",
+        grade="L4" if is_origin_only else "L3",
         base_url=base,
-        full_url=_build_full_url(base, resolution.candidate.path),
-        tier="L4" if is_origin_only else "L3",
+        full_url=_build_full_url(base, resolution.fact.path),
         base_source="origin" if is_origin_only else (src or "fanout"),
         binding_rule="origin_fallback" if is_origin_only else "global_pool",
         why_not_higher_tier=WHY_ORIGIN_FALLBACK if is_origin_only else WHY_GLOBAL_POOL,
@@ -230,12 +226,12 @@ def _bases_by_canonical(
 ) -> dict[ClientKey, tuple[str, str]]:
     cdp: dict[ClientKey, set[str]] = {}
     for resolution in resolutions:
-        if resolution.status != "confirmed" or not resolution.confirmed:
+        if resolution.grade != "runtime" or not resolution.confirmed:
             continue
-        base = compute_base_url(resolution.confirmed.url, resolution.candidate.path)
+        base = compute_base_url(resolution.confirmed.url, resolution.fact.path)
         if not base:
             continue
-        for ref in resolution.candidate.client_refs:
+        for ref in resolution.fact.client_refs:
             canon = client_graph.canonical(ref)
 
             if canon is not None:
@@ -271,7 +267,7 @@ def _graph_base(
     client_graph: ClientGraph,
     base_by_canon: dict[ClientKey, tuple[str, str]],
 ) -> tuple[str, str, str] | None:
-    tmpl = resolution.candidate.url_template
+    tmpl = resolution.fact.url_template
     if tmpl is not None and tmpl.segments:
         head = tmpl.segments[0]
         if isinstance(head, RefHole) and head.client_ref is not None:
@@ -281,7 +277,7 @@ def _graph_base(
                 base, source = base_by_canon[canon]
                 return base, source, "client_graph_host"
 
-    for ref in resolution.candidate.client_refs:
+    for ref in resolution.fact.client_refs:
         canon = client_graph.canonical(ref)
         if canon is not None and canon in base_by_canon:
             base, source = base_by_canon[canon]

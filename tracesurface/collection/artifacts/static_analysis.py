@@ -17,9 +17,11 @@ from tracesurface.collection.artifacts.micro_frontend.scanner import (
     SourceScan,
     scan_source_tree,
 )
+from tracesurface.extraction.analyzer import ASTAnalyzer
 from tracesurface.htmlast import extract_inline_scripts
-from tracesurface.jsast import parse_js
-from tracesurface.models import SourceRef
+from tracesurface.jsast import JsParser
+from tracesurface.models import ExtractionFacts, SecretMatch, SourceRef
+from tracesurface.secrets.extractor import SecretScanner
 from tracesurface.sources import load_source
 
 
@@ -33,12 +35,15 @@ class StaticArtifactResult:
     chunk_urls: frozenset[str] = field(default_factory=frozenset)
     chunk_plans: tuple[ChunkEvalPlan, ...] = ()
     source_scan: SourceScan | None = None
+    extraction: ExtractionFacts = field(default_factory=ExtractionFacts)
+    secrets: tuple[SecretMatch, ...] = ()
 
 
 def analyze_html_artifact(
     ref: SourceRef,
     html_url: str,
     target_url: str,
+    wrapper_prefixes: dict[str, str] | None = None,
 ) -> StaticArtifactResult:
     html = load_source(ref)
     router_routes: set[str] = set()
@@ -47,10 +52,15 @@ def analyze_html_artifact(
     inline_static_urls: set[str] = set()
     chunk_urls: set[str] = set()
     chunk_plans: list[ChunkEvalPlan] = []
+    parser = JsParser()
+    analyzer = ASTAnalyzer()
+    extraction = ExtractionFacts()
 
-    for _line, script in extract_inline_scripts(html):
+    for start_line, script in extract_inline_scripts(html):
         try:
-            root = parse_js(script).root_node
+            norm = parser.normalize(script)
+            tree = parser.parse(norm)
+            root = tree.root_node
         except Exception:
             continue
 
@@ -68,6 +78,20 @@ def analyze_html_artifact(
         if plan is not None:
             chunk_plans.append(plan)
 
+        file_facts = analyzer.analyze_parsed(
+            root,
+            norm,
+            html_url,
+            wrapper_prefixes,
+            line_offset=start_line,
+        )
+        extraction = ExtractionFacts(
+            requests=extraction.requests + file_facts.requests,
+            bases=extraction.bases + file_facts.bases,
+            aliases=extraction.aliases + file_facts.aliases,
+        )
+
+    secrets = tuple(SecretScanner().scan_html(html_url, html))
     return StaticArtifactResult(
         js_urls=frozenset(extract_html_js_urls(html, html_url)),
         router_routes=frozenset(router_routes),
@@ -76,6 +100,8 @@ def analyze_html_artifact(
         inline_static_urls=frozenset(inline_static_urls),
         chunk_urls=frozenset(chunk_urls),
         chunk_plans=tuple(chunk_plans),
+        extraction=extraction,
+        secrets=secrets,
     )
 
 
@@ -83,16 +109,24 @@ def analyze_js_artifact(
     ref: SourceRef,
     source_url: str,
     target_url: str,
+    wrapper_prefixes: dict[str, str] | None = None,
 ) -> StaticArtifactResult:
     source_text = load_source(ref)
+    parser = JsParser()
     try:
-        root = parse_js(source_text).root_node
+        norm = parser.normalize(source_text)
+        tree = parser.parse(norm)
+        root = tree.root_node
     except Exception:
         return StaticArtifactResult()
 
     router_routes, named_routes, w3c_routes = route.extract_route_sets_from_tree(root)
     source = SourceDocument(source_url, source_text, root)
     plan = build_webpack_eval_plan(source)
+    extraction = ASTAnalyzer().analyze_parsed(
+        root, norm, source_url, wrapper_prefixes
+    )
+    secrets = tuple(SecretScanner().scan_js(source_url, source_text))
 
     return StaticArtifactResult(
         router_routes=frozenset(router_routes),
@@ -101,4 +135,6 @@ def analyze_js_artifact(
         chunk_urls=discover_vite_urls(source, target_url),
         chunk_plans=(plan,) if plan is not None else (),
         source_scan=scan_source_tree(root),
+        extraction=extraction,
+        secrets=secrets,
     )

@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from tracesurface.collection.artifacts.chunks.types import SourceDocument
-from tracesurface.collection.artifacts.chunks.url_builder import (
-    clean_relative_import,
-    vite_asset_url,
-)
 from tracesurface.jsast import node_text, parse_js, walk_pre_iter
 
 VITE_FINGERPRINT = "__vite__mapDeps"
 VITE_FINGERPRINT_ALT = "__vite__fileDeps"
+
+
+def _vite_asset_url(path: str, base_url: str) -> str:
+    parsed = urlparse(base_url)
+    val = path if path.startswith("/") else "/" + path
+    return urlunparse(parsed._replace(path=val, query="", fragment=""))
+
+
+def _clean_relative_import(source_url: str, rel_path: str) -> str:
+    abs_url = urljoin(source_url, rel_path)
+    clean = urlparse(abs_url)
+    return urlunparse(clean._replace(query="", fragment=""))
 
 
 def discover_vite_urls(
@@ -42,13 +51,13 @@ def discover_vite_urls(
                     continue
                 val = node_text(child).strip("'\"")
                 if val.endswith(".js"):
-                    urls.add(vite_asset_url(val, base_url))
+                    urls.add(_vite_asset_url(val, base_url))
 
     if source.url:
         for match in re.finditer(
             r'import\(\s*["\'](\.[^"\']+\.js)["\']',
             source.text,
         ):
-            urls.add(clean_relative_import(source.url, match.group(1)))
+            urls.add(_clean_relative_import(source.url, match.group(1)))
 
     return frozenset(urls)

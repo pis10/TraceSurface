@@ -1,11 +1,22 @@
 
-export const TIER_HINT = "L1–L4 表示 URL 推导把握度，不是优先级；所有结果都要看。";
+export const GRADE_HINT: Record<string, string> = {
+  runtime: "浏览器真实打过这条请求",
+  "full-url": "源码里已经是完整 URL",
+  L1: "唯一 base 绑定，把握最高的推导",
+  L2: "client / 扇出绑定",
+  L3: "全站已发现 base 池",
+  L4: "仅用目标 origin 兜底",
+  "no-url": "找到了调用点，但还拼不出完整 URL",
+};
 
-export const STATUS_HINT: Record<string, string> = {
-  confirmed: "浏览器真实请求已对齐到源码调用点",
-  inferred: "从 JavaScript 推导出的 URL",
-  ast_full: "源码里已经是完整 URL",
-  not_inferred: "找到了调用点，但还拼不出完整 URL",
+export const GRADE_LABEL: Record<string, string> = {
+  runtime: "runtime",
+  "full-url": "full-url",
+  L1: "L1",
+  L2: "L2",
+  L3: "L3",
+  L4: "L4",
+  "no-url": "no-url",
 };
 
 export function fmtRelTime(ts?: number | null) {

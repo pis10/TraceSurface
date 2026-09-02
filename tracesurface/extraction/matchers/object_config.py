@@ -12,11 +12,11 @@ from tracesurface.extraction.matcher_context import (
     parse_fetch_options,
 )
 from tracesurface.jsast import get_object_props, node_text
-from tracesurface.models import APIMatch
+from tracesurface.models import RequestFact
 from tracesurface.urls import combine_urls
 
 
-def match_object_config(node: Node, ctx: MatcherContext) -> APIMatch | None:
+def match_object_config(node: Node, ctx: MatcherContext) -> RequestFact | None:
     if node.type != "call_expression":
         return None
 

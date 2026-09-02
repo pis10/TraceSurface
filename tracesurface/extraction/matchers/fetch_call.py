@@ -8,10 +8,10 @@ from tracesurface.extraction.matcher_context import (
     parse_fetch_options,
 )
 from tracesurface.jsast import node_text
-from tracesurface.models import APIMatch, Param
+from tracesurface.models import Param, RequestFact
 
 
-def match_fetch_call(node: Node, ctx: MatcherContext) -> APIMatch | None:
+def match_fetch_call(node: Node, ctx: MatcherContext) -> RequestFact | None:
     if node.type != "call_expression":
         return None
 

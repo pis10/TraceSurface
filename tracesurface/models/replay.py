@@ -25,7 +25,7 @@ class ReplayRequest:
     query: Mapping[str, object] = field(default_factory=dict)
     body: Mapping[str, object] | None = None
     variant: str = ""
-    inference_tier: str | None = None
+    grade: str | None = None
     base_source: str | None = None
     binding_rule: str | None = None
     why_not_higher_tier: str | None = None
@@ -66,7 +66,7 @@ class ReplayRecord:
     time_ms: int
     error: str | None
     resp_bytes: bytes | None = None
-    inference_tier: str | None = None
+    grade: str | None = None
     base_source: str | None = None
     binding_rule: str | None = None
     why_not_higher_tier: str | None = None
@@ -78,9 +78,8 @@ class ReplayCandidate:
     resolution_id: int
     method: str
     full_url: str | None
-    status: str
+    grade: str
     params: tuple[Param, ...] = ()
-    tier: str | None = None
     base_source: str | None = None
     binding_rule: str | None = None
     why_not_higher_tier: str | None = None

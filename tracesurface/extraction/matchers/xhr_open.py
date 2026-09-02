@@ -10,10 +10,10 @@ from tracesurface.extraction.matcher_context import (
     unwrap_json_stringify,
 )
 from tracesurface.jsast import extract_string, node_text, walk_pre_iter
-from tracesurface.models import APIMatch, Param
+from tracesurface.models import Param, RequestFact
 
 
-def match_xhr_open(node: Node, ctx: MatcherContext) -> APIMatch | None:
+def match_xhr_open(node: Node, ctx: MatcherContext) -> RequestFact | None:
     if node.type != "call_expression":
         return None
 

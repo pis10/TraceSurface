@@ -8,7 +8,7 @@ import { Pager } from "@/components/shared/Pager";
 import { TableSkeleton } from "@/components/shared/TableSkeleton";
 import { api } from "@/lib/api";
 import { isFilterAtDefault, parseSearchPrefix, type FilterState } from "@/lib/filters";
-import { STATUS_HINT, TIER_HINT } from "@/lib/format";
+import { GRADE_HINT, GRADE_LABEL } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PageResult, ResolutionDetail, ResolutionListItem } from "@/types/api";
 
@@ -18,14 +18,17 @@ type Props = {
   toast: (message: string) => void;
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  confirmed: "confirmed",
-  inferred: "inferred",
-  ast_full: "ast-full",
-  not_inferred: "no-base",
-};
-
 const stripHost = (url: string) => url.replace(/^https?:\/\/[^/]+/, "") || "/";
+
+function gradeBadge(grade?: string | null) {
+  if (!grade) return <span className="text-text-4">-</span>;
+  const hint = GRADE_HINT[grade] || grade;
+  return (
+    <span className={`tier-badge tier-${grade}`} title={hint}>
+      {GRADE_LABEL[grade] || grade}
+    </span>
+  );
+}
 const hostOf = (url: string) => (url.match(/^https?:\/\/([^/]+)/) || [])[1] || "";
 
 export function ApiSurfaceView({ filters, onResultLabel, toast }: Props) {
@@ -95,15 +98,13 @@ export function ApiSurfaceView({ filters, onResultLabel, toast }: Props) {
           <table className={cn("data-table", selectedId ? "min-w-[640px]" : "min-w-[760px]")}>
             <colgroup>
               <col className="w-[82px]" />
-              <col className="w-[60px]" />
-              <col className="w-[100px]" />
+              <col className="w-[88px]" />
               <col />
             </colgroup>
             <thead>
               <tr>
                 <th>Method</th>
-                <th>Tier</th>
-                <th>Status</th>
+                <th>Grade</th>
                 <th>Full URL</th>
               </tr>
             </thead>
@@ -111,7 +112,7 @@ export function ApiSurfaceView({ filters, onResultLabel, toast }: Props) {
               {loading ? (
                 <TableSkeleton columns={4} />
               ) : error ? (
-                <tr><td colSpan={4} className="py-10 text-center text-red">{error}</td></tr>
+                <tr><td colSpan={3} className="py-10 text-center text-red">{error}</td></tr>
               ) : data.total ? (
                 data.items.map((item, index) => (
                   <Row
@@ -124,7 +125,7 @@ export function ApiSurfaceView({ filters, onResultLabel, toast }: Props) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4}>
+                  <td colSpan={3}>
                     {isFilterAtDefault(filters) ? (
                       <EmptyState title="还没扫过任何站点" hint="运行 tracesurface scan https://example.com 开始扫描" />
                     ) : (
@@ -166,11 +167,9 @@ function Row({ item, selected, delay, onClick }: { item: ResolutionListItem; sel
   return (
     <tr className={cn("animate-fade-up", selected && "selected")} style={{ animationDelay: delay }} onClick={onClick}>
       <td><span className={`method-badge method-${item.method}`}>{item.method === "UNKNOWN" ? "?" : item.method}</span></td>
-      <td>{item.inference_tier ? <span className={`tier-badge tier-${item.inference_tier}`} title={TIER_HINT}>{item.inference_tier}</span> : <span className="text-text-4">-</span>}</td>
-      <td><span className="tag" title={STATUS_HINT[item.category] || item.category}>{STATUS_LABEL[item.category] || item.category}</span></td>
+      <td>{gradeBadge(item.grade)}</td>
       <td className="min-w-0" title={item.full_url}>
         <div className="flex items-center gap-1.5">
-          {item.cdp_request_id ? <span className="tag shrink-0 text-brand" title="浏览器运行时捕获的真实请求">NET</span> : null}
           <span className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-text">{stripHost(item.full_url)}</span>
         </div>
         {host ? <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-text-3">{host}</div> : null}
@@ -203,9 +202,7 @@ function DetailPane({ id, res, onClose, toast }: { id: number; res: ResolutionDe
         </button>
         <div className="mb-3 flex items-center gap-2">
           <span className={`method-badge method-${res.method}`}>{res.method === "UNKNOWN" ? "?" : res.method}</span>
-          {res.inference_tier ? <span className={`tier-badge tier-${res.inference_tier}`} title={TIER_HINT}>{res.inference_tier}</span> : null}
-          {res.evidence?.some((item) => item.evidence_kind === "cdp_request") ? <span className="tag text-brand" title="浏览器运行时捕获的真实请求">NET</span> : null}
-          <span className="tag" title={STATUS_HINT[res.category] || res.category}>{STATUS_LABEL[res.category] || res.category}</span>
+          {gradeBadge(res.grade)}
         </div>
         <button className="block break-all text-left font-mono text-[13px] leading-5 text-text hover:text-brand" title="点击复制完整 URL" onClick={() => copy(res.full_url)}>
           {res.full_url}
@@ -216,11 +213,10 @@ function DetailPane({ id, res, onClose, toast }: { id: number; res: ResolutionDe
           <div className="section-title">推导</div>
           <KvGrid
             items={[
-              { label: "Tier", value: res.inference_tier ? <span className={`tier-badge tier-${res.inference_tier}`} title={TIER_HINT}>{res.inference_tier}</span> : "-", hidden: !res.inference_tier },
-              { label: "Status", value: <span title={STATUS_HINT[res.category] || res.category}>{STATUS_LABEL[res.category] || res.category}</span> },
+              { label: "Grade", value: gradeBadge(res.grade) },
               { label: "Base 出处", value: res.base_source, hidden: !res.base_source },
               { label: "绑定规则", value: res.binding_rule, hidden: !res.binding_rule },
-              { label: "为何非更高 tier", value: res.why_not_higher_tier, hidden: !res.why_not_higher_tier },
+              { label: "为何非更高档", value: res.why_not_higher_tier, hidden: !res.why_not_higher_tier },
             ]}
           />
         </section>
@@ -243,7 +239,7 @@ function DetailPane({ id, res, onClose, toast }: { id: number; res: ResolutionDe
               ))}
             </div>
           ) : (
-            <div className="body-empty">无运行时证据（非 confirmed）</div>
+            <div className="body-empty">无运行时证据</div>
           )}
         </section>
         <section className="section">

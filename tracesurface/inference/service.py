@@ -8,27 +8,19 @@ from tracesurface.inference.base_url import (
 from tracesurface.inference.cdp_match import match_cdp_ast, merge_runtime_apis
 from tracesurface.inference.client_graph import ClientGraph
 from tracesurface.inference.resolve_graph import resolve_graph
-from tracesurface.models import (
-    CollectionBundle,
-    ExtractionResult,
-    InferenceResult,
-    ScanResult,
-)
+from tracesurface.models import CollectionBundle, InferenceResult, ScanResult
 from tracesurface.urls import origin_of
 
 
-def infer(
-    bundle: CollectionBundle,
-    extraction: ExtractionResult,
-) -> InferenceResult:
-    facts = extraction.facts
+def infer(bundle: CollectionBundle) -> InferenceResult:
+    facts = bundle.extraction
     origin = origin_of(bundle.target_url)
 
     matched = match_cdp_ast(
         list(bundle.cdp_requests),
         list(facts.requests),
     )
-    confirmed = [r for r in matched.resolutions if r.status == "confirmed"]
+    confirmed = [r for r in matched.resolutions if r.grade == "runtime"]
 
     anchors = build_base_url_anchors(
         confirmed,
@@ -37,7 +29,7 @@ def infer(
     )
 
     client_graph = ClientGraph.build(facts.aliases)
-    base_urls, resolved = resolve_graph(
+    resolved = resolve_graph(
         matched.resolutions,
         anchors,
         client_graph,
@@ -50,18 +42,15 @@ def infer(
     route_facts = tuple(bundle.route_facts)
     result = ScanResult(
         target_url=bundle.target_url,
-        js_count=extraction.js_count,
+        js_count=len(bundle.js_sources),
         cdp_request_count=len(bundle.cdp_requests),
         ast_total=len(facts.requests),
         route_count=len(route_facts),
         visited_route_count=sum(1 for fact in route_facts if fact.visited),
         productive_route_count=sum(1 for fact in route_facts if fact.productive),
-        discovery_stats=dict(bundle.discovery_stats),
-        base_urls=frozenset(base_urls),
         apis=resolutions,
-        cdp_only=matched.cdp_only,
         all_cdp_requests=tuple(bundle.cdp_requests),
-        secrets=tuple(extraction.secrets),
+        secrets=tuple(bundle.secrets),
         warnings=tuple(bundle.warnings),
     )
     return InferenceResult(result=result)

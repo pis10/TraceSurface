@@ -5,7 +5,7 @@ import re
 from tree_sitter import Node
 
 from tracesurface.jsast import extract_string, node_text
-from tracesurface.models import APIMatch
+from tracesurface.models import CallerInfo
 
 _CALLER_RE = re.compile(r"^Object\((\w+)[.\[]")
 
@@ -148,22 +148,23 @@ def _extract_require_id_webpack(value_node: Node) -> str:
     return ""
 
 
-def _extract_caller_prop_webpack(func_node: Node, result: APIMatch) -> None:
+def _extract_caller_prop_webpack(func_node: Node) -> str:
     if func_node.type != "call_expression":
-        return
+        return ""
     args = func_node.child_by_field_name("arguments")
     if not args or not args.named_children:
-        return
+        return ""
 
     inner = args.named_children[0]
     if inner.type == "member_expression":
         prop = inner.child_by_field_name("property")
         if prop:
-            result.caller_prop = node_text(prop)
+            return node_text(prop)
     elif inner.type == "subscript_expression":
         index = inner.child_by_field_name("index")
         if index and index.type == "string":
-            result.caller_prop = extract_string(index) or ""
+            return extract_string(index) or ""
+    return ""
 
 
 def extract_esm_imports(source: str) -> dict[str, tuple[str, str]]:
@@ -187,20 +188,17 @@ def extract_esm_imports(source: str) -> dict[str, tuple[str, str]]:
     return result
 
 
-def fill_caller_info(
+def caller_info(
     node: Node,
-    result: APIMatch,
     module_requires: dict[str, dict[str, str]],
     esm_imports: dict[str, tuple[str, str]],
     is_webpack_fmt: bool,
     js_url: str,
-) -> None:
-    if is_webpack_fmt:
-        result.module_id = find_module_id_webpack(node)
-    else:
-        result.module_id = js_url
+) -> CallerInfo:
+    module_id = find_module_id_webpack(node) if is_webpack_fmt else js_url
 
     caller_var = ""
+    caller_prop = ""
     if node.type == "call_expression":
         func = node.child_by_field_name("function")
         if func:
@@ -210,12 +208,12 @@ def fill_caller_info(
                 m = _CALLER_RE.match(func_text)
                 if m:
                     caller_var = m.group(1)
-                    _extract_caller_prop_webpack(func, result)
+                    caller_prop = _extract_caller_prop_webpack(func)
 
             if not caller_var and func.type == "member_expression":
                 prop = func.child_by_field_name("property")
                 if prop:
-                    result.caller_prop = node_text(prop)
+                    caller_prop = node_text(prop)
                 obj = func.child_by_field_name("object")
                 if obj:
                     obj_text = node_text(obj)
@@ -224,7 +222,9 @@ def fill_caller_info(
                         m2 = _CALLER_RE.match(obj_text)
                         if m2:
                             caller_var = m2.group(1)
-                            _extract_caller_prop_webpack(obj, result)
+                            webpack_prop = _extract_caller_prop_webpack(obj)
+                            if webpack_prop:
+                                caller_prop = webpack_prop
 
                     if not caller_var:
                         root = obj
@@ -239,17 +239,20 @@ def fill_caller_info(
             if not caller_var and func.type == "identifier":
                 caller_var = node_text(func)
 
-    result.caller_var = caller_var
-
+    require_id = ""
     if caller_var:
         if is_webpack_fmt:
-            if result.module_id:
-                reqs = module_requires.get(result.module_id, {})
-                result.require_id = reqs.get(caller_var, "")
-        else:
-            if caller_var in esm_imports:
-                req_id, orig_name = esm_imports[caller_var]
-                result.require_id = req_id
+            if module_id:
+                require_id = module_requires.get(module_id, {}).get(caller_var, "")
+        elif caller_var in esm_imports:
+            req_id, orig_name = esm_imports[caller_var]
+            require_id = req_id
+            if not caller_prop:
+                caller_prop = orig_name
 
-                if not result.caller_prop:
-                    result.caller_prop = orig_name
+    return CallerInfo(
+        module_id=module_id,
+        caller_var=caller_var,
+        caller_prop=caller_prop,
+        require_id=require_id,
+    )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 
@@ -11,26 +11,7 @@ class Param:
     default: object = None
 
 
-@dataclass(slots=True)
-class APIMatch:
-    url: str = ""
-    path: str = ""
-    method: str = "UNKNOWN"
-    pattern: str = ""
-    line: int = 0
-    col_start: int = 0
-    col_end: int = 0
-    params: list[Param] = field(default_factory=list)
-    module_id: str = ""
-    caller_var: str = ""
-    caller_prop: str = ""
-    require_id: str = ""
-    url_template: UrlTemplate | None = None
-    client_ref: ClientRef | None = None
-
-
-InferenceTier: TypeAlias = Literal["L1", "L2", "L3", "L4"]
-ApiStatus: TypeAlias = Literal["confirmed", "inferred", "ast_full", "not_inferred"]
+ApiGrade: TypeAlias = Literal["runtime", "full-url", "L1", "L2", "L3", "L4", "no-url"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,18 +31,6 @@ class CallerInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class ApiCandidate:
-    path: str
-    method: str
-    pattern: str
-    location: SourceLocation
-    params: tuple[Param, ...]
-    caller: CallerInfo
-    url_template: UrlTemplate | None = None
-    client_refs: tuple[ClientRef, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class ConfirmedRequest:
     method: str
     url: str
@@ -70,11 +39,10 @@ class ConfirmedRequest:
 
 @dataclass(frozen=True, slots=True)
 class ApiResolution:
-    candidate: ApiCandidate
-    status: ApiStatus
+    fact: RequestFact
+    grade: ApiGrade
     full_url: str | None = None
     base_url: str | None = None
-    tier: InferenceTier | None = None
     confirmed: ConfirmedRequest | None = None
     base_source: str | None = None
     binding_rule: str | None = None
@@ -180,12 +148,9 @@ class ExtractionFacts:
 
 __all__ = [
     "Param",
-    "APIMatch",
-    "InferenceTier",
-    "ApiStatus",
+    "ApiGrade",
     "SourceLocation",
     "CallerInfo",
-    "ApiCandidate",
     "ConfirmedRequest",
     "ApiResolution",
     "ClientRef",

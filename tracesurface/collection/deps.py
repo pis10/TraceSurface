@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Collection
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar
+from typing import Any, TypeVar
 
 import httpx
 
@@ -19,14 +20,19 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-class CpuPort(Protocol):
-    async def run(self, func: Callable[..., Any], *args: Any) -> Any: ...
+async def run_cpu(
+    executor: ProcessPoolExecutor,
+    func: Callable[..., Any],
+    *args: Any,
+) -> Any:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(executor, func, *args)
 
 
 @dataclass(frozen=True, slots=True)
 class DiscoveryDeps:
     http: HttpTextClient
-    cpu: CpuPort
+    cpu: ProcessPoolExecutor
     page: Any | None = None
 
 

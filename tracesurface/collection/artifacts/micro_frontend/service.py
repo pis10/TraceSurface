@@ -9,14 +9,14 @@ from tracesurface.collection.artifacts.micro_frontend.entries import (
 from tracesurface.collection.artifacts.micro_frontend.harvest import (
     harvest_identifiers,
 )
+from tracesurface.collection.artifacts.micro_frontend.qiankun_manifest import (
+    match_qiankun_bodies,
+)
 from tracesurface.collection.artifacts.micro_frontend.scanner import (
     SourceScan,
     enrich_identifiers_from_cached_arrays,
 )
-from tracesurface.collection.artifacts.micro_frontend.signal_b import (
-    match_qiankun_bodies,
-)
-from tracesurface.collection.artifacts.micro_frontend.signal_e import (
+from tracesurface.collection.artifacts.micro_frontend.script_loader import (
     render_loader_urls,
     validate_urls,
 )
@@ -24,6 +24,7 @@ from tracesurface.collection.artifacts.static_analysis import (
     analyze_html_artifact,
     analyze_js_artifact,
 )
+from tracesurface.collection.deps import run_cpu
 from tracesurface.config import DEFAULT_SETTINGS
 
 AppConfig = dict[str, object]
@@ -41,7 +42,8 @@ async def collect_micro_frontend(state) -> None:
         elif cached is False:
             continue
         else:
-            result = await state.ports.cpu.run(
+            result = await run_cpu(
+                state.ports.cpu,
                 analyze_js_artifact,
                 ref,
                 js_url,
@@ -69,7 +71,8 @@ async def collect_micro_frontend(state) -> None:
         if isinstance(cached_html, set):
             static_src_urls |= cached_html
         else:
-            result = await state.ports.cpu.run(
+            result = await run_cpu(
+                state.ports.cpu,
                 analyze_html_artifact,
                 html_ref,
                 html_key,
@@ -79,9 +82,9 @@ async def collect_micro_frontend(state) -> None:
             state.cache.inline_static_urls[html_key] = html_urls
             static_src_urls |= html_urls
 
-    apps_from_a: list[AppConfig] = []
+    apps_from_register: list[AppConfig] = []
     for rc in register_calls:
-        apps_from_a.extend(rc.apps)
+        apps_from_register.extend(rc.apps)
 
     loader_names = {L.func_name for L in all_loaders}
     merged_sites: dict[str, set[str]] = {n: set() for n in loader_names}
@@ -91,15 +94,15 @@ async def collect_micro_frontend(state) -> None:
                 merged_sites[name] |= scan.call_sites.get(name, set())
 
     response_bodies = tuple(state.json_response_bodies.values())
-    apps_from_b = (
-        await state.ports.cpu.run(match_qiankun_bodies, response_bodies)
+    apps_from_qiankun = (
+        await run_cpu(state.ports.cpu, match_qiankun_bodies, response_bodies)
         if response_bodies
         else []
     )
 
     seen_names: set[str] = set()
     combined_apps: list[AppConfig] = []
-    for app in apps_from_a + apps_from_b:
+    for app in apps_from_register + apps_from_qiankun:
         name = app.get("name")
         if isinstance(name, str) and name and name not in seen_names:
             seen_names.add(name)
@@ -163,7 +166,7 @@ async def collect_micro_frontend(state) -> None:
                 if enriched:
                     merged_sites[loader.func_name] |= enriched
 
-        candidates_e = render_loader_urls(
+        loader_candidates = render_loader_urls(
             unique_loaders,
             merged_sites,
             state.target_url,
@@ -171,7 +174,7 @@ async def collect_micro_frontend(state) -> None:
 
         attempted = state.cache.validated_attempted
         validated_ok = state.cache.validated_ok
-        to_check = candidates_e - attempted
+        to_check = loader_candidates - attempted
 
         validated_new = await validate_urls(
             to_check,
@@ -182,7 +185,7 @@ async def collect_micro_frontend(state) -> None:
         validated_ok |= validated_new
         state.add_js_urls(
             validated_new,
-            source="mfe_signal_e",
+            source="mfe_script_loader",
             evidence_url=state.target_url,
         )
 

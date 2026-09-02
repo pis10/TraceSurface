@@ -3,25 +3,24 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
 
-from tracesurface.models import CDPReplayTarget, ScanJob, ScanSummary
+from tracesurface.models import ScanJob, ScanSummary
 from tracesurface.pipeline.messages import InferredItem, StageFailure
 from tracesurface.sources import remove_scan_sources
 from tracesurface.storage.commands import (
     CreateScan,
     FinishScan,
+    InferenceWriteResult,
     PurgeTarget,
     SaveInference,
 )
-from tracesurface.storage.sqlite.writer import StorageWriterPort
+from tracesurface.storage.sqlite.writer import StorageWriter
 
 
 @dataclass(slots=True)
 class ScanLifecycle:
-    storage_writer: StorageWriterPort
+    storage_writer: StorageWriter
     target_replay_key_counts_loader: Callable[[str], dict[str, int]]
-    cdp_replay_targets_loader: Callable[[int], list[dict[str, Any]]]
     wait_ms: int
     do_replay: bool
     replayed_key_counts: dict[str, int] = field(default_factory=dict)
@@ -69,32 +68,15 @@ class ScanLifecycle:
         finally:
             await self.cleanup_sources(item.scan_id)
 
-    async def save_inference(self, item: InferredItem) -> dict[int, int]:
+    async def save_inference(self, item: InferredItem) -> InferenceWriteResult:
         scan_id = item.job.scan_id
 
-        resolution_id_map = await self.storage_writer.submit(
+        written = await self.storage_writer.submit(
             SaveInference(scan_id, inference=item.inference)
         )
 
         await self.cleanup_sources(scan_id)
-        return resolution_id_map
-
-    async def load_cdp_replay_targets(
-        self, scan_id: int
-    ) -> tuple[CDPReplayTarget, ...]:
-        rows = await asyncio.to_thread(self.cdp_replay_targets_loader, scan_id)
-        return tuple(
-            CDPReplayTarget(
-                cdp_request_id=row["id"],
-                method=row["method"] or "GET",
-                url=row["request_url"],
-                raw_body=row["post_data"],
-                content_type=row["content_type"],
-                resolution_id=row["resolution_id"],
-            )
-            for row in rows
-            if row["request_url"]
-        )
+        return written
 
     async def cleanup_sources(self, scan_id: int | None) -> None:
         if scan_id is None or scan_id in self.cleaned_source_scans:

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from tracesurface.extraction.analyzer import ASTAnalyzer
-from tracesurface.extraction.registry import build_default_matcher_registry
-from tracesurface.jsast import JsParser
 from tracesurface.models import (
     BaseFact,
     ClientAliasFact,
@@ -35,11 +33,8 @@ def _learn_wrapper_prefixes(bundle: CollectionBundle) -> dict[str, str]:
     return finalize_wrapper_prefixes(gw_infixes, gateways)
 
 
-def extract_collection(
-    bundle: CollectionBundle,
-    analyzer: ASTAnalyzer | None = None,
-) -> ExtractionResult:
-    analyzer = analyzer or ASTAnalyzer(JsParser(), build_default_matcher_registry())
+def extract_collection(bundle: CollectionBundle) -> ExtractionResult:
+    analyzer = ASTAnalyzer()
     f_requests: list[RequestFact] = []
     f_bases: list[BaseFact] = []
     f_aliases: list[ClientAliasFact] = []

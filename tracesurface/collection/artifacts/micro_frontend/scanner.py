@@ -11,11 +11,11 @@ from tracesurface.collection.artifacts.micro_frontend.common import (
 from tracesurface.collection.artifacts.micro_frontend.harvest import (
     detect_static_script_urls,
 )
-from tracesurface.collection.artifacts.micro_frontend.signal_a import (
+from tracesurface.collection.artifacts.micro_frontend.register_apps import (
     RegisterCall,
     detect_register_calls,
 )
-from tracesurface.collection.artifacts.micro_frontend.signal_e import (
+from tracesurface.collection.artifacts.micro_frontend.script_loader import (
     LoaderTemplate,
     detect_script_injection_loaders,
 )

@@ -9,7 +9,14 @@ from uuid import uuid4
 from tracesurface.collection.deps import DiscoveryDeps
 from tracesurface.collection.discovery.fact_store import FactStore
 from tracesurface.config import CollectionSettings
-from tracesurface.models import CDPRequest, CDPResult, ScanWarning, SourceRef
+from tracesurface.models import (
+    CDPRequest,
+    CDPResult,
+    ExtractionFacts,
+    ScanWarning,
+    SecretMatch,
+    SourceRef,
+)
 from tracesurface.policies import TargetContext
 from tracesurface.sources import store_source
 
@@ -46,19 +53,14 @@ class DiscoveryCache:
     validated_ok: set[str] = field(default_factory=set)
 
 
-@dataclass(frozen=True, slots=True)
-class DiscoveryContext:
+@dataclass(slots=True)
+class DiscoverySession:
     target: TargetContext
     ports: DiscoveryDeps
     settings: CollectionSettings
     scan_id: int | None = None
     hash_prefix: str = ""
     source_scope: int | str = field(default_factory=lambda: f"adhoc-{uuid4().hex}")
-
-
-@dataclass(slots=True)
-class DiscoverySession:
-    context: DiscoveryContext
     facts: FactStore = field(default_factory=FactStore)
     html_source: SourceRef | None = None
     cdp_requests: list[CDPRequest] = field(default_factory=list)
@@ -67,30 +69,10 @@ class DiscoverySession:
     json_response_bodies: dict[str, str] = field(default_factory=dict)
     cache: DiscoveryCache = field(default_factory=DiscoveryCache)
     warnings: list[ScanWarning] = field(default_factory=list)
-
-    @property
-    def target(self) -> TargetContext:
-        return self.context.target
-
-    @property
-    def ports(self) -> DiscoveryDeps:
-        return self.context.ports
-
-    @property
-    def settings(self) -> CollectionSettings:
-        return self.context.settings
-
-    @property
-    def scan_id(self) -> int | None:
-        return self.context.scan_id
-
-    @property
-    def hash_prefix(self) -> str:
-        return self.context.hash_prefix
-
-    @property
-    def source_scope(self) -> int | str:
-        return self.context.source_scope
+    extraction: ExtractionFacts = field(default_factory=ExtractionFacts)
+    secrets: list[SecretMatch] = field(default_factory=list)
+    _wrapper_gateways: set[str] = field(default_factory=set)
+    _wrapper_infixes: dict[str, set[str]] = field(default_factory=dict)
 
     @property
     def target_url(self) -> str:
@@ -130,6 +112,7 @@ class DiscoverySession:
             source,
         )
         self.facts.add_js_source(url, ref)
+        self._learn_wrappers(source)
         return ref
 
     def add_cdp_requests(self, requests: Iterable[CDPRequest]) -> int:
@@ -172,7 +155,37 @@ class DiscoverySession:
 
         if bootstrap:
             self.html_source = ref
+        self._learn_wrappers(html)
         return self.facts.add_html(url, ref, source=source)
+
+    def wrapper_prefixes(self) -> dict[str, str]:
+        from tracesurface.extraction.wrappers import finalize_wrapper_prefixes
+
+        if not self._wrapper_gateways:
+            return {}
+        return finalize_wrapper_prefixes(self._wrapper_infixes, self._wrapper_gateways)
+
+    def absorb_extraction(
+        self,
+        facts: ExtractionFacts,
+        secrets: tuple[SecretMatch, ...] = (),
+    ) -> None:
+        self.extraction = ExtractionFacts(
+            requests=self.extraction.requests + facts.requests,
+            bases=self.extraction.bases + facts.bases,
+            aliases=self.extraction.aliases + facts.aliases,
+        )
+        self.secrets.extend(secrets)
+
+    def _learn_wrappers(self, source: str) -> None:
+        from tracesurface.extraction.wrappers import gateways_in_calls, infixes_for
+
+        found = gateways_in_calls(source)
+        if not found:
+            return
+        self._wrapper_gateways |= found
+        for gw, infs in infixes_for(source, self._wrapper_gateways).items():
+            self._wrapper_infixes.setdefault(gw, set()).update(infs)
 
     def add_mfe_entry_urls(self, urls: Iterable[str]) -> set[str]:
         added: set[str] = set()

@@ -51,13 +51,9 @@ class CDPCollectRequest:
 
 
 class CDPTraceSession:
-    def __init__(
-        self,
-        request_classifier: RequestClassifier | None = None,
-        capture_policy: ResponseCapturePolicy | None = None,
-    ) -> None:
-        self.request_classifier = request_classifier or RequestClassifier()
-        self.capture_policy = capture_policy or ResponseCapturePolicy()
+    def __init__(self) -> None:
+        self.request_classifier = RequestClassifier()
+        self.capture_policy = ResponseCapturePolicy()
 
     async def collect(self, page: Page, request: CDPCollectRequest) -> CDPResult:
         loop = asyncio.get_running_loop()
@@ -84,17 +80,10 @@ class CDPTraceSession:
         text_body_pending: set[str] = set()
         finished_body_ids: set[str] = set()
         json_response_bodies: dict[str, str] = {}
-        dropped_no_stack_count = 0
-        dropped_no_stack_samples: list[str] = []
         timed_out = False
-        timeout_reasons: list[str] = []
         collection_error = ""
         navigation_ok = True
         html_content = ""
-
-        def add_timeout_reason(reason: str) -> None:
-            if reason not in timeout_reasons:
-                timeout_reasons.append(reason)
 
         def on_script_response(response: Response) -> None:
             if response.request.resource_type != "script":
@@ -118,7 +107,6 @@ class CDPTraceSession:
             )
 
             def on_request(params: dict[str, Any]) -> None:
-                nonlocal dropped_no_stack_count
                 request_data = params["request"]
                 url = request_data["url"]
                 request_type = params.get("type", "")
@@ -143,9 +131,6 @@ class CDPTraceSession:
 
                 stack = params.get("initiator", {}).get("stack")
                 if not stack:
-                    dropped_no_stack_count += 1
-                    if len(dropped_no_stack_samples) < 5:
-                        dropped_no_stack_samples.append(url)
                     return
 
                 parsed = urlparse(url)
@@ -205,7 +190,6 @@ class CDPTraceSession:
                 navigation_ok = False
                 timed_out = True
                 collection_error = repr(exc)
-                add_timeout_reason("goto_timeout")
             except PlaywrightError as exc:
                 if request.total_timeout_ms is None:
                     raise
@@ -226,7 +210,6 @@ class CDPTraceSession:
                     except PlaywrightTimeoutError:
                         if request.total_timeout_ms is not None:
                             timed_out = True
-                            add_timeout_reason("networkidle_timeout")
                     except PlaywrightError as exc:
                         if request.total_timeout_ms is None:
                             raise
@@ -297,7 +280,6 @@ class CDPTraceSession:
             except asyncio.TimeoutError:
                 if request.total_timeout_ms is not None:
                     timed_out = True
-                    add_timeout_reason("finalize_timeout")
         finally:
             page.remove_listener("response", on_script_response)
             with suppress(PlaywrightError):
@@ -318,9 +300,6 @@ class CDPTraceSession:
             requests=unique_requests,
             html_content=html_content,
             json_response_bodies=json_response_bodies,
-            dropped_no_stack_count=dropped_no_stack_count,
-            dropped_no_stack_samples=dropped_no_stack_samples,
             timed_out=timed_out,
-            timeout_reasons=timeout_reasons,
             collection_error=collection_error,
         )

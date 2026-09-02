@@ -15,7 +15,6 @@ from tracesurface.collection.deps import HttpTextClient
 from tracesurface.collection.runtime.browser_context import launch_browser
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.http import StatelessAsyncClient
-from tracesurface.pipeline.cpu import CpuRunner
 from tracesurface.pipeline.lifecycle import ScanLifecycle
 from tracesurface.pipeline.messages import BatchScanOutcome, NoMoreAnalysis, ScanOutput
 from tracesurface.pipeline.outcome import OutcomeRecorder
@@ -66,7 +65,6 @@ class PipelineRunner:
             mp_context=multiprocessing.get_context("spawn"),
             initializer=configure_worker_logging,
         )
-        cpu = CpuRunner(cpu_executor)
         storage_writer = None
         lifecycle = None
 
@@ -103,7 +101,6 @@ class PipelineRunner:
                 lifecycle = ScanLifecycle(
                     storage_writer=storage_writer,
                     target_replay_key_counts_loader=_load_target_replayed_keys,
-                    cdp_replay_targets_loader=_load_cdp_replay_targets,
                     wait_ms=request.wait_ms,
                     do_replay=request.do_replay,
                     replayed_key_counts=replayed_key_counts,
@@ -130,7 +127,7 @@ class PipelineRunner:
                     lifecycle=lifecycle,
                     browser=browser,
                     http=http,
-                    cpu=cpu,
+                    cpu=cpu_executor,
                     auth_state=request.auth_state,
                     headed=request.headed,
                 )
@@ -209,9 +206,4 @@ def _load_target_replayed_keys(target_url: str) -> dict[str, int]:
     return load_replayed_key_counts_for_target(target_url)
 
 
-def _load_cdp_replay_targets(scan_id: int) -> list[dict[str, Any]]:
-    from tracesurface.storage.sqlite.connection import init
-    from tracesurface.storage.sqlite.repositories import load_cdp_replay_targets
 
-    init()
-    return load_cdp_replay_targets(scan_id)

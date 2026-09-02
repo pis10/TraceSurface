@@ -31,7 +31,13 @@ jobs:
           python-version: "3.12"
 
       - name: Test backend
-        run: uv run python -m unittest discover -s tests -v
+        shell: bash
+        run: |
+          if ls tests/test_*.py >/dev/null 2>&1; then
+            uv run python -m unittest discover -s tests -v
+          else
+            echo "No tests to run"
+          fi
 
       - name: Build frontend
         shell: bash

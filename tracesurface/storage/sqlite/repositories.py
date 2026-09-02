@@ -24,6 +24,7 @@ from tracesurface.sources import remove_all_sources, remove_scan_sources
 from tracesurface.storage.commands import (
     CreateScan,
     FinishScan,
+    InferenceWriteResult,
     PurgeAll,
     PurgeTarget,
     SaveInference,
@@ -119,7 +120,7 @@ class SQLiteWriteRepository:
 
     def save_inference(
         self, scan_id: int, inference: InferenceResult
-    ) -> dict[int, int]:
+    ) -> InferenceWriteResult:
         result = inference.result
         conn = self.conn
 
@@ -140,7 +141,10 @@ class SQLiteWriteRepository:
 
             self._insert_secrets(conn, scan_id, result.secrets)
             conn.execute("COMMIT")
-            return resolution_id_map
+            return InferenceWriteResult(
+                resolution_ids=resolution_id_map,
+                cdp_ids=cdp_id_by_key,
+            )
         except Exception:
             conn.execute("ROLLBACK")
             raise
@@ -160,7 +164,7 @@ class SQLiteWriteRepository:
                     "INSERT INTO verifications(resolution_id, cdp_request_id, scan_id, domain, variant, "
                     "sent_url, sent_method, "
                     "sent_query, sent_body, sent_headers, status, resp_headers, resp_ct, resp_len, "
-                    "resp_snippet, resp_file, time_ms, error, created_at, inference_tier, "
+                    "resp_snippet, resp_file, time_ms, error, created_at, grade, "
                     "base_source, binding_rule, why_not_higher_tier) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     values,
@@ -310,7 +314,7 @@ class SQLiteWriteRepository:
         sink_id_by_key: dict[tuple[Any, ...], int] = {}
         index_to_resolution: dict[int, int] = {}
         for idx, m in enumerate(result.apis):
-            a = m.candidate
+            a = m.fact
 
             params_json = json.dumps(
                 [
@@ -350,15 +354,14 @@ class SQLiteWriteRepository:
                 sink_id_by_key[sink_key] = sink_id
 
             cur = conn.execute(
-                "INSERT INTO api_resolutions(sink_id, scan_id, full_url, category, "
-                "inference_tier, base_source, binding_rule, why_not_higher_tier) "
-                "VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO api_resolutions(sink_id, scan_id, full_url, grade, "
+                "base_source, binding_rule, why_not_higher_tier) "
+                "VALUES(?,?,?,?,?,?,?)",
                 (
                     sink_id,
                     scan_id,
                     m.full_url or a.path,
-                    m.status,
-                    m.tier,
+                    m.grade,
                     m.base_source,
                     m.binding_rule,
                     m.why_not_higher_tier,
@@ -367,7 +370,7 @@ class SQLiteWriteRepository:
             resolution_id = cur.lastrowid or 0
             index_to_resolution[idx] = resolution_id
 
-            if m.status == "confirmed" and m.confirmed is not None:
+            if m.grade == "runtime" and m.confirmed is not None:
                 cdp_id = cdp_id_by_key.get(
                     dedup_key(m.confirmed.method, m.confirmed.url)
                 )
@@ -505,29 +508,6 @@ def load_replayed_key_counts() -> dict[str, int]:
         conn.close()
 
 
-def load_cdp_replay_targets(scan_id: int) -> list[dict[str, Any]]:
-    conn = connect()
-    try:
-        rows = conn.execute(
-            """
-            SELECT c.id, c.method, c.request_url, c.post_data, c.content_type,
-                   (
-                     SELECT e.resolution_id
-                     FROM resolution_evidence e
-                     WHERE e.evidence_kind = 'cdp_request' AND e.evidence_id = c.id
-                     ORDER BY e.resolution_id
-                     LIMIT 1
-                   ) AS resolution_id
-            FROM cdp_requests c
-            WHERE c.scan_id = ?
-            """,
-            (scan_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
 def load_replayed_key_counts_for_target(target_url: str) -> dict[str, int]:
     conn = connect()
     try:
@@ -640,7 +620,7 @@ def _replay_row(rec: ReplayRecord) -> tuple[tuple[Any, ...], str | bytes | None]
             rec.time_ms,
             rec.error,
             int(time.time()),
-            rec.inference_tier,
+            rec.grade,
             rec.base_source,
             rec.binding_rule,
             rec.why_not_higher_tier,

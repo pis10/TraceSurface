@@ -61,10 +61,3 @@ def finalize_wrapper_prefixes(
         if top in family_infix:
             result[gw] = family_infix[top]
     return result
-
-
-def learn_wrapper_prefixes(source: str) -> dict[str, str]:
-    gws = gateways_in_calls(source)
-    if not gws:
-        return {}
-    return finalize_wrapper_prefixes(infixes_for(source, gws), gws)

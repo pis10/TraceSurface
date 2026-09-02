@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ProcessPoolExecutor
 from urllib.parse import urljoin, urlparse
 
 from tree_sitter import Node
@@ -12,7 +13,11 @@ from tracesurface.collection.artifacts.micro_frontend.common import (
     _is_valid_app_name,
     is_strict_identifier,
 )
-from tracesurface.collection.deps import CpuPort, HttpClientTimeoutError, HttpTextClient
+from tracesurface.collection.deps import (
+    HttpClientTimeoutError,
+    HttpTextClient,
+    run_cpu,
+)
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.jsast import (
     extract_literal_value,
@@ -211,7 +216,7 @@ async def harvest_identifiers(
     cdp_response_bodies: dict[str, str],
     target_url: str,
     http_client: HttpTextClient,
-    cpu: CpuPort,
+    cpu: ProcessPoolExecutor,
     cache: dict[str, set[str]] | None = None,
 ) -> set[str]:
     identifiers: set[str] = set()
@@ -223,7 +228,7 @@ async def harvest_identifiers(
             if cached is not None:
                 identifiers |= cached
                 continue
-        ids = await cpu.run(harvest_identifiers_from_body, body)
+        ids = await run_cpu(cpu, harvest_identifiers_from_body, body)
         if len(ids) > DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body:
             ids = set(
                 sorted(ids)[: DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body]
@@ -269,7 +274,7 @@ async def harvest_identifiers(
                     result = set()
                 else:
                     text = await http_client.text(resp)
-                    result = await cpu.run(harvest_identifiers_from_body, text)
+                    result = await run_cpu(cpu, harvest_identifiers_from_body, text)
                     if (
                         len(result)
                         > DEFAULT_SETTINGS.collection.mfe_harvest_max_ids_per_body

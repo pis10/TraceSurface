@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
 from tracesurface.storage.commands import Flush, SaveReplayRecord, StorageCommand
 
@@ -12,12 +12,6 @@ if TYPE_CHECKING:
     from tracesurface.storage.sqlite.repositories import SQLiteWriteRepository
 
 _STOP = object()
-
-
-@runtime_checkable
-class StorageWriterPort(Protocol):
-    async def submit(self, command: StorageCommand) -> Any: ...
-    async def fire_and_forget(self, command: StorageCommand) -> None: ...
 
 
 class StorageWriter:

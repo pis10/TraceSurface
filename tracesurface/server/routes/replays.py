@@ -20,7 +20,7 @@ def replays(
     methods: str | None = None,
     buckets: str | None = None,
     resp_cts: str | None = None,
-    tiers: str | None = None,
+    grades: str | None = None,
     origins: str | None = None,
     deny_keywords: list[str] | None = Query(default=None),
     sort: Literal[
@@ -42,7 +42,7 @@ def replays(
         methods=parse_csv(methods),
         buckets=parse_csv(buckets),
         resp_cts=parse_csv(resp_cts),
-        tiers=parse_csv(tiers),
+        grades=parse_csv(grades),
         origins=parse_csv(origins),
         deny_keywords=deny_keywords,
         sort=sort,

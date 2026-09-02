@@ -1,14 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from tracesurface.collection.deps import (
-    CpuPort,
-    DiscoveryDeps,
-    HttpTextClient,
-)
+from tracesurface.collection.deps import DiscoveryDeps, HttpTextClient
 from tracesurface.collection.discovery.engine import run_discovery_loop
 from tracesurface.collection.discovery.fact_store import FactStore
 from tracesurface.collection.runtime.auth import (
@@ -16,7 +13,7 @@ from tracesurface.collection.runtime.auth import (
     split_storage_state,
 )
 from tracesurface.collection.runtime.cdp_trace import CDPCollectRequest, CDPTraceSession
-from tracesurface.collection.session import DiscoveryContext, DiscoverySession
+from tracesurface.collection.session import DiscoverySession
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.models import CollectionBundle, ScanWarning
 from tracesurface.policies import TargetContext
@@ -63,10 +60,9 @@ async def collect_site(
     browser,
     wait_ms: int,
     http: HttpTextClient,
-    cpu: CpuPort,
+    cpu: ProcessPoolExecutor,
     scan_id: int | None = None,
     auth_state: dict[str, Any] | None = None,
-    cdp_tracer: CDPTraceSession | None = None,
     headed: bool = False,
 ) -> CollectionBundle:
     context_kwargs_base: dict[str, Any] = {
@@ -82,7 +78,7 @@ async def collect_site(
     context = await browser.new_context(**ctx_kwargs)
     await apply_auth_bundle_to_context(context, auth_state)
     page = await context.new_page()
-    tracer = cdp_tracer or CDPTraceSession()
+    tracer = CDPTraceSession()
     try:
         cdp_result = await tracer.collect(
             page,
@@ -122,18 +118,16 @@ async def collect_site(
         state_target_url = page_url or target_url
 
         state = DiscoverySession(
-            context=DiscoveryContext(
-                target=TargetContext(state_target_url),
-                ports=DiscoveryDeps(
-                    http=http,
-                    cpu=cpu,
-                    page=page,
-                ),
-                settings=DEFAULT_SETTINGS.collection,
-                scan_id=scan_id,
-                hash_prefix=hash_prefix,
-                source_scope=scan_id if scan_id is not None else f"adhoc-{uuid4().hex}",
+            target=TargetContext(state_target_url),
+            ports=DiscoveryDeps(
+                http=http,
+                cpu=cpu,
+                page=page,
             ),
+            settings=DEFAULT_SETTINGS.collection,
+            scan_id=scan_id,
+            hash_prefix=hash_prefix,
+            source_scope=scan_id if scan_id is not None else f"adhoc-{uuid4().hex}",
             facts=FactStore(),
             cdp_requests=list(cdp_result.requests),
             cdp_request_keys={r.dedup_key for r in cdp_result.requests},
@@ -166,7 +160,7 @@ async def collect_site(
 
         state.record_cdp_diagnostics("bootstrap", cdp_result, page_url=page_url)
 
-        stats = await run_discovery_loop(state)
+        await run_discovery_loop(state)
 
         return CollectionBundle(
             target_url=target_url,
@@ -176,8 +170,9 @@ async def collect_site(
             },
             js_sources=dict(state.js_sources),
             cdp_requests=tuple(state.cdp_requests),
-            discovery_stats=stats,
             route_facts=tuple(state.facts.route_facts.values()),
+            extraction=state.extraction,
+            secrets=tuple(state.secrets),
             warnings=tuple(state.warnings),
         )
     finally:

@@ -10,7 +10,7 @@ from tracesurface.extraction.matcher_context import (
     parse_fetch_options,
 )
 from tracesurface.jsast import node_text
-from tracesurface.models import APIMatch, Param
+from tracesurface.models import Param, RequestFact
 
 _VERB_METHODS = (
     ("post", "POST"),
@@ -22,7 +22,7 @@ _VERB_METHODS = (
 )
 
 
-def match_split_wrapper(node: Node, ctx: MatcherContext) -> APIMatch | None:
+def match_split_wrapper(node: Node, ctx: MatcherContext) -> RequestFact | None:
     if not ctx.wrapper_prefixes:
         return None
     if node.type != "call_expression":
