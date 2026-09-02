@@ -79,6 +79,9 @@ jobs:
     needs: [binary]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: release
@@ -91,8 +94,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: >
-          gh release create "$GITHUB_REF_NAME" release/*
-          --verify-tag
-          --title "$GITHUB_REF_NAME"
-          --notes "下载对应平台的压缩包，解压后即可运行。"
+        run: |
+          prev_tag="$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)"
+          {
+            echo "下载对应平台的压缩包，解压后即可运行。"
+            if [ -n "$prev_tag" ]; then
+              echo
+              echo "本次变更（$prev_tag → $GITHUB_REF_NAME）："
+              echo
+              git log --no-merges --pretty='- %s' "$prev_tag..$GITHUB_REF_NAME" | grep -v '^- Ship v' || true
+            fi
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md
