@@ -1,8 +1,6 @@
 
 
 import type {
-  CdpDetail,
-  CdpListItem,
   DomainSummary,
   PageResult,
   ReplayDetail,
@@ -55,8 +53,6 @@ export const api = {
   resolution: (id: number) => request<ResolutionDetail>(`/api/resolutions/${id}`),
   replays: (params: Query) => request<PageResult<ReplayListItem>>("/api/replays", params),
   replay: (id: number) => request<ReplayDetail>(`/api/replays/${id}`),
-  cdpRequests: (params: Query) => request<PageResult<CdpListItem>>("/api/cdp_requests", params),
-  cdpRequest: (id: number) => request<CdpDetail>(`/api/cdp_requests/${id}`),
   secretFacets: (params?: Query) => request<SecretFacets>("/api/secrets/facets", params),
   secrets: (params: Query) => request<PageResult<SecretListItem>>("/api/secrets", params),
   secret: (id: number) => request<SecretDetail>(`/api/secrets/${id}`),

@@ -1,4 +1,13 @@
 
+export const TIER_HINT = "L1–L4 表示 URL 推导把握度，不是优先级；所有结果都要看。";
+
+export const STATUS_HINT: Record<string, string> = {
+  confirmed: "浏览器真实请求已对齐到源码调用点",
+  inferred: "从 JavaScript 推导出的 URL",
+  ast_full: "源码里已经是完整 URL",
+  not_inferred: "找到了调用点，但还拼不出完整 URL",
+};
+
 export function fmtRelTime(ts?: number | null) {
   if (!ts) return "";
   const seconds = Math.max(0, Math.floor(Date.now() / 1000 - ts));

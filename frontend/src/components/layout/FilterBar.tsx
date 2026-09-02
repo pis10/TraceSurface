@@ -1,6 +1,6 @@
 
 import { RotateCcw, Settings, Trash2 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -10,8 +10,6 @@ import {
   BUCKETS,
   METHODS,
   RESPONSE_TYPES,
-  STATUSES,
-  TIERS,
   defaultFilters,
   toggleFilterItem,
   type FilterState,
@@ -19,14 +17,13 @@ import {
 import { HV_BUILTIN_KEYWORDS, HV_MAX_CUSTOM, normalizeCustomKeyword, type HighValueState } from "@/lib/high-value";
 import { fmtDuration, fmtRelTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { DomainSummary, TargetSummary } from "@/types/api";
+import type { TargetSummary } from "@/types/api";
 import type { MainTab } from "@/types/state";
 
 type FilterBarProps = {
   activeTab: MainTab;
   filters: FilterState;
   highValue: HighValueState;
-  domains: DomainSummary[];
   targets: TargetSummary[];
   resultLabel: string;
   onFiltersChange: (filters: FilterState) => void;
@@ -38,17 +35,12 @@ export function FilterBar({
   activeTab,
   filters,
   highValue,
-  domains,
   targets,
   resultLabel,
   onFiltersChange,
   onHighValueChange,
   onOpenPurge,
 }: FilterBarProps) {
-  const domainOptions = useMemo(
-    () => domains.map((item) => ({ value: item.domain, label: item.domain, meta: String(item.replay_count) })),
-    [domains],
-  );
   const targetOptions = useMemo(
     () =>
       targets.map((item) => {
@@ -63,13 +55,11 @@ export function FilterBar({
       }),
     [targets],
   );
-  const totalDomainReplays = domains.reduce((sum, item) => sum + (item.replay_count || 0), 0);
   const totalTargetReplays = targets.reduce((sum, item) => sum + (item.replay_count || 0), 0);
 
   const update = (patch: Partial<FilterState>) => onFiltersChange({ ...filters, ...patch });
   const locked = highValue.on;
   const isReplays = activeTab === "replays";
-  const isCdp = activeTab === "cdp";
   const isSurface = activeTab === "surface";
 
   const setHighValue = (on: boolean) => {
@@ -90,9 +80,20 @@ export function FilterBar({
   return (
     <nav className="filterbar">
       <div className="filterbar-filters">
-      {isReplays ? (
-        <>
-          <FilterChipRow label="Status">
+        <SelectPopover
+          label="站点"
+          value={filters.target}
+          allLabel="全部站点"
+          allMeta={`${targets.length} 个 · ${totalTargetReplays}`}
+          options={targetOptions}
+          hint="选择扫描过的目标站点"
+          onChange={(target) => update({ target })}
+        />
+
+        {isReplays || isSurface ? <span className="filter-sep" aria-hidden="true" /> : null}
+
+        {isReplays ? (
+          <div className="filter-chip-cluster">
             <ChipGroup
               all={BUCKETS}
               value={filters.buckets}
@@ -100,87 +101,33 @@ export function FilterBar({
               className={(item) => `bucket-${item}`}
               onChange={(buckets) => update({ buckets })}
             />
-          </FilterChipRow>
-          <FilterChipRow label="Method">
             <ChipGroup all={METHODS} value={filters.methods} className={(item) => `method-${item}`} onChange={(methods) => update({ methods })} />
-          </FilterChipRow>
-          <FilterChipRow label="Type">
             <ChipGroup all={RESPONSE_TYPES} value={filters.respCts} locked={locked} onChange={(respCts) => update({ respCts })} />
-          </FilterChipRow>
-          <FilterChipRow label="Tier">
-            <ChipGroup all={TIERS} value={filters.tiers} className={(item) => `tier-${item}`} onChange={(tiers) => update({ tiers })} />
-          </FilterChipRow>
-        </>
-      ) : null}
+          </div>
+        ) : null}
 
-      {isCdp ? (
-        <FilterChipRow label="Method">
+        {isSurface ? (
           <ChipGroup all={METHODS} value={filters.methods} className={(item) => `method-${item}`} onChange={(methods) => update({ methods })} />
-        </FilterChipRow>
-      ) : null}
-
-      {isSurface ? (
-        <>
-          <FilterChipRow label="Method">
-            <ChipGroup all={METHODS} value={filters.methods} className={(item) => `method-${item}`} onChange={(methods) => update({ methods })} />
-          </FilterChipRow>
-          <FilterChipRow label="Tier">
-            <ChipGroup all={TIERS} value={filters.tiers} className={(item) => `tier-${item}`} onChange={(tiers) => update({ tiers })} />
-          </FilterChipRow>
-          <FilterChipRow label="Status">
-            <ChipGroup all={STATUSES} value={filters.statuses} onChange={(statuses) => update({ statuses })} />
-          </FilterChipRow>
-        </>
-      ) : null}
-
-      <SelectPopover
-        label="扫描站点"
-        value={filters.target}
-        allLabel="全部站点"
-        allMeta={`${targets.length} 个 · ${totalTargetReplays}`}
-        options={targetOptions}
-        onChange={(target) => update({ target })}
-      />
-
-      {isReplays ? (
-        <SelectPopover
-          label="API 域名"
-          value={filters.domain}
-          allLabel="全部 API 域名"
-          allMeta={`${domains.length} 个 · ${totalDomainReplays}`}
-          options={domainOptions}
-          icon="globe"
-          onChange={(domain) => update({ domain })}
-        />
-      ) : null}
+        ) : null}
       </div>
 
       <div className="filterbar-actions">
         {isReplays ? <HighValueControl value={highValue} onToggle={setHighValue} onChange={onHighValueChange} /> : null}
 
-        <div className={cn("inline-flex h-8 items-center gap-1.5 rounded-md border border-line-2 bg-[var(--ink-0)] px-3 font-mono text-[11px] tabular-nums text-text-2", highValue.on && isReplays && "border-brand text-brand")}>
-          <span className={cn("h-1.5 w-1.5 rounded-full bg-text-4", highValue.on && isReplays && "bg-brand")} style={{ boxShadow: highValue.on && isReplays ? "0 0 8px var(--brand-glow)" : undefined }} />
+        <div className={cn("filter-count", highValue.on && isReplays && "is-hot")}>
+          <span className={cn("filter-count-dot", highValue.on && isReplays && "is-hot")} />
           {resultLabel || "-"}
         </div>
-        <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-3 text-[11px] font-normal" onClick={() => onFiltersChange(defaultFilters())}>
+        <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-[11px] font-normal" onClick={() => onFiltersChange(defaultFilters())}>
           <RotateCcw className="h-3.5 w-3.5 text-text-4" />
-          reset
+          重置
         </Button>
-        <Button variant="danger" size="sm" className="h-8 gap-1.5 px-3 text-[11px] font-normal" onClick={onOpenPurge}>
+        <Button variant="danger" size="sm" className="h-8 gap-1.5 px-2.5 text-[11px] font-normal" onClick={onOpenPurge}>
           <Trash2 className="h-3.5 w-3.5" />
-          清空数据
+          清空
         </Button>
       </div>
     </nav>
-  );
-}
-
-function FilterChipRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="filter-chip-row">
-      <span className="filter-label">{label}</span>
-      {children}
-    </div>
   );
 }
 

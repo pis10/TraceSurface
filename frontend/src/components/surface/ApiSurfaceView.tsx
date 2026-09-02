@@ -8,6 +8,7 @@ import { Pager } from "@/components/shared/Pager";
 import { TableSkeleton } from "@/components/shared/TableSkeleton";
 import { api } from "@/lib/api";
 import { isFilterAtDefault, parseSearchPrefix, type FilterState } from "@/lib/filters";
+import { STATUS_HINT, TIER_HINT } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PageResult, ResolutionDetail, ResolutionListItem } from "@/types/api";
 
@@ -42,8 +43,6 @@ export function ApiSurfaceView({ filters, onResultLabel, toast }: Props) {
       search: parsed.search,
       target: filters.target,
       methods: filters.methods.join(","),
-      tiers: filters.tiers.join(","),
-      statuses: filters.statuses.join(","),
       offset: (page - 1) * pageSize,
       limit: pageSize,
     };
@@ -53,7 +52,7 @@ export function ApiSurfaceView({ filters, onResultLabel, toast }: Props) {
     setPage(1);
     setSelectedId(null);
     setSelected(null);
-  }, [filters.search, filters.target, filters.methods, filters.tiers, filters.statuses]);
+  }, [filters.search, filters.target, filters.methods]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,10 +166,13 @@ function Row({ item, selected, delay, onClick }: { item: ResolutionListItem; sel
   return (
     <tr className={cn("animate-fade-up", selected && "selected")} style={{ animationDelay: delay }} onClick={onClick}>
       <td><span className={`method-badge method-${item.method}`}>{item.method === "UNKNOWN" ? "?" : item.method}</span></td>
-      <td>{item.inference_tier ? <span className={`tier-badge tier-${item.inference_tier}`}>{item.inference_tier}</span> : <span className="text-text-4">-</span>}</td>
-      <td><span className="tag">{STATUS_LABEL[item.category] || item.category}</span></td>
+      <td>{item.inference_tier ? <span className={`tier-badge tier-${item.inference_tier}`} title={TIER_HINT}>{item.inference_tier}</span> : <span className="text-text-4">-</span>}</td>
+      <td><span className="tag" title={STATUS_HINT[item.category] || item.category}>{STATUS_LABEL[item.category] || item.category}</span></td>
       <td className="min-w-0" title={item.full_url}>
-        <div className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-text">{stripHost(item.full_url)}</div>
+        <div className="flex items-center gap-1.5">
+          {item.cdp_request_id ? <span className="tag shrink-0 text-brand" title="浏览器运行时捕获的真实请求">NET</span> : null}
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-text">{stripHost(item.full_url)}</span>
+        </div>
         {host ? <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-text-3">{host}</div> : null}
       </td>
     </tr>
@@ -201,8 +203,9 @@ function DetailPane({ id, res, onClose, toast }: { id: number; res: ResolutionDe
         </button>
         <div className="mb-3 flex items-center gap-2">
           <span className={`method-badge method-${res.method}`}>{res.method === "UNKNOWN" ? "?" : res.method}</span>
-          {res.inference_tier ? <span className={`tier-badge tier-${res.inference_tier}`}>{res.inference_tier}</span> : null}
-          <span className="tag">{STATUS_LABEL[res.category] || res.category}</span>
+          {res.inference_tier ? <span className={`tier-badge tier-${res.inference_tier}`} title={TIER_HINT}>{res.inference_tier}</span> : null}
+          {res.evidence?.some((item) => item.evidence_kind === "cdp_request") ? <span className="tag text-brand" title="浏览器运行时捕获的真实请求">NET</span> : null}
+          <span className="tag" title={STATUS_HINT[res.category] || res.category}>{STATUS_LABEL[res.category] || res.category}</span>
         </div>
         <button className="block break-all text-left font-mono text-[13px] leading-5 text-text hover:text-brand" title="点击复制完整 URL" onClick={() => copy(res.full_url)}>
           {res.full_url}
@@ -213,8 +216,8 @@ function DetailPane({ id, res, onClose, toast }: { id: number; res: ResolutionDe
           <div className="section-title">推导</div>
           <KvGrid
             items={[
-              { label: "Tier", value: res.inference_tier ? <span className={`tier-badge tier-${res.inference_tier}`}>{res.inference_tier}</span> : "-", hidden: !res.inference_tier },
-              { label: "Status", value: STATUS_LABEL[res.category] || res.category },
+              { label: "Tier", value: res.inference_tier ? <span className={`tier-badge tier-${res.inference_tier}`} title={TIER_HINT}>{res.inference_tier}</span> : "-", hidden: !res.inference_tier },
+              { label: "Status", value: <span title={STATUS_HINT[res.category] || res.category}>{STATUS_LABEL[res.category] || res.category}</span> },
               { label: "Base 出处", value: res.base_source, hidden: !res.base_source },
               { label: "绑定规则", value: res.binding_rule, hidden: !res.binding_rule },
               { label: "为何非更高 tier", value: res.why_not_higher_tier, hidden: !res.why_not_higher_tier },

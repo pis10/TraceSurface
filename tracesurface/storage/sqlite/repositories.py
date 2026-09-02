@@ -509,8 +509,18 @@ def load_cdp_replay_targets(scan_id: int) -> list[dict[str, Any]]:
     conn = connect()
     try:
         rows = conn.execute(
-            "SELECT id, method, request_url, post_data, content_type "
-            "FROM cdp_requests WHERE scan_id = ?",
+            """
+            SELECT c.id, c.method, c.request_url, c.post_data, c.content_type,
+                   (
+                     SELECT e.resolution_id
+                     FROM resolution_evidence e
+                     WHERE e.evidence_kind = 'cdp_request' AND e.evidence_id = c.id
+                     ORDER BY e.resolution_id
+                     LIMIT 1
+                   ) AS resolution_id
+            FROM cdp_requests c
+            WHERE c.scan_id = ?
+            """,
             (scan_id,),
         ).fetchall()
         return [dict(r) for r in rows]

@@ -31,15 +31,16 @@ The page triggers only `GET /prod-api/captchaImage`, but that single request pro
 
 ![Scan of the RuoYi demo](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/scan-ruoyi.png)
 
-89.2 seconds later, one login page has unfolded into the complete frontend API surface:
+47.7 seconds later, one login page has unfolded into the complete frontend API surface:
 
 | Metric | Result |
 | --- | --- |
 | AST call sites | 316 (before dedup) |
-| Recovered APIs | 135 (1 confirmed, 0 CDP-only, 134 across L1–L4) |
+| Recovered APIs | 135 (1 confirmed, 0 CDP-only, L1 125 · L2 3 · L3 3 · L4 3) |
 | Frontend routes | 19 found, 19 visited |
 | Requests replayed | 92 (88 2xx, 4 4xx) |
 | Secret matches | 1 |
+| Duration | 47.7s |
 
 One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, monitoring, AI conversations — backend endpoints never triggered by the current page emerge directly from the frontend code.
 
@@ -56,7 +57,7 @@ One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, m
 - **Stack-to-AST alignment**: binds CDP initiator coordinates to source call sites, confirming requests and recovering base URLs.
 - **Evidence-driven inference**: grades URL derivations from L1 to L4, with every result traceable to evidence.
 - **Credential-free verification**: strips Cookie, Authorization, and other credentials before replaying requests to expose authorization gaps.
-- **Local report**: API Surface, runtime traffic, verification results, and secret matches in one place.
+- **Local report**: discovered APIs, unauthenticated replay results, and secret matches in one place.
 
 ## Quick Start
 
@@ -130,9 +131,8 @@ One thing to remember when reading results: HTTP 2xx does not imply business suc
 
 | View | Purpose |
 | --- | --- |
-| **API Surface** | Resolved frontend API candidates, call sites, evidence tiers, and baseURL sources |
-| **Verification** | Active replay requests, responses, status codes, and matches |
-| **Network** | Real browser Fetch/XHR traffic, initiator stacks, and linked unauthenticated replay |
+| **APIs** | Frontend-derived API inventory, including real browser requests |
+| **Replays** | Unauthenticated replay requests, responses, status codes, and matches |
 | **Secrets** | Sensitive information found in frontend artifacts, with context |
 
 ## How It Works

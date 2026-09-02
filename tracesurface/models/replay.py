@@ -93,6 +93,7 @@ class CDPReplayTarget:
     url: str
     raw_body: str | None = None
     content_type: str | None = None
+    resolution_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

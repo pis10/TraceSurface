@@ -35,8 +35,9 @@ def query_resolutions(
         wheres.append(f"s.method IN ({ph})")
         params.extend(methods)
     if tiers:
-        sel = [t for t in tiers if t in {"L1", "L2", "L3", "L4"}]
-        if sel:
+        known_tiers = {"L1", "L2", "L3", "L4"}
+        sel = [t for t in tiers if t in known_tiers]
+        if sel and set(sel) != known_tiers:
             ph = ",".join("?" * len(sel))
             wheres.append(f"r.inference_tier IN ({ph})")
             params.extend(sel)
@@ -64,7 +65,11 @@ def query_resolutions(
     count_sql = f"SELECT COUNT(*) {base}"
     select_sql = (
         "SELECT r.id, s.method, r.full_url, r.category, r.inference_tier, "
-        f"r.base_source, r.binding_rule {base} ORDER BY {order} LIMIT ? OFFSET ?"
+        "r.base_source, r.binding_rule, "
+        "(SELECT e.evidence_id FROM resolution_evidence e "
+        " WHERE e.resolution_id = r.id AND e.evidence_kind = 'cdp_request' "
+        " LIMIT 1) AS cdp_request_id "
+        f"{base} ORDER BY {order} LIMIT ? OFFSET ?"
     )
     conn = connect()
     try:
@@ -176,7 +181,7 @@ def query_replays(
     if tiers:
         known_tiers = {"L1", "L2", "L3", "L4"}
         selected = [t for t in tiers if t in known_tiers]
-        if selected:
+        if selected and set(selected) != known_tiers:
             ph = ",".join("?" * len(selected))
             wheres.append(f"inference_tier IN ({ph})")
             params.extend(selected)

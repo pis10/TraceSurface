@@ -68,6 +68,7 @@ export type ResolutionListItem = {
   inference_tier?: "L1" | "L2" | "L3" | "L4" | null;
   base_source?: string | null;
   binding_rule?: string | null;
+  cdp_request_id?: number | null;
 };
 
 export type VerificationSummary = {
@@ -100,29 +101,6 @@ export type ResolutionDetail = ResolutionListItem & {
   scan_id?: number | null;
   verifications?: VerificationSummary[];
   evidence?: ResolutionEvidence[];
-};
-
-export type CdpListItem = {
-  id: number;
-  method: string;
-  request_url: string;
-  request_path?: string | null;
-  response_status?: number | null;
-  response_size?: number | null;
-  resp_ct?: string | null;
-};
-
-export type CdpDetail = CdpListItem & {
-  request_headers?: Record<string, unknown>;
-  response_headers?: Record<string, unknown>;
-  post_data?: string | null;
-  query_string?: string | null;
-  content_type?: string | null;
-  response_body?: string | null;
-  response_body_truncated?: boolean;
-  response_body_full_size?: number | null;
-
-  verifications?: VerificationSummary[];
 };
 
 export type SecretFacets = {

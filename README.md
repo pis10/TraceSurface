@@ -19,9 +19,9 @@ TraceSurface 面向渗透测试、安全评估与 API 资产盘点。从一个 U
 
 **核心原则：真实请求负责确认，静态分析负责扩展；每条 API 都有证据，每层推导都有依据。**
 
-## 实战：只扫登录页
+## 实战演示：扫描站点登录页
 
-只给 TraceSurface 一个若依官方 Vue 登录页：不登录，不进入后台。
+目标是若依官方 Vue 登录页，不登录后台管理，从前端代码里挖出所有后台 API：
 
 ```bash
 tracesurface scan https://vue.ruoyi.vip/login
@@ -33,22 +33,22 @@ tracesurface scan https://vue.ruoyi.vip/login
 
 ![扫描若依演示站](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/scan-ruoyi.png)
 
-89.2 秒后，一个登录页还原出完整的前端 API 攻击面：
 
 | 指标 | 结果 |
 | --- | --- |
 | AST 调用点 | 316（去重前） |
-| 还原出的 API | 135（已确认 1，仅 CDP 0，L1–L4 共 134） |
+| 还原出的 API | 135（已确认 1，仅 CDP 0，L1 125 · L2 3 · L3 3 · L4 3） |
 | 前端路由 | 发现 19，访问 19 |
 | 重放请求 | 92（2xx 88，4xx 4） |
 | 敏感信息命中 | 1 |
+| 耗时 | 47.7s |
 
 一个验证码请求，最终还原出 135 个 API。角色、菜单、部门、字典、监控、AI 会话——这些当前页面从未触发的后台接口，被一并挖了出来。
 
 ![报告界面：从登录页还原出的若依 API](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
 
 > [!NOTE]
-> 88 条 2xx 里，有 79 条在响应体返回了 `code: 401`。HTTP 2xx 只代表请求被受理，不代表业务成功，判断未授权访问还要看响应内容。
+> 88 条 2xx 里，有 79 条在响应体返回了 `code: 401`。
 
 ## 核心能力
 
@@ -58,7 +58,7 @@ tracesurface scan https://vue.ruoyi.vip/login
 - **Stack-to-AST 对齐**：将 CDP 发起栈精确绑定源码调用点，确认请求并还原 baseURL。
 - **证据驱动推导**：以 L1–L4 标注 URL 的推导强度，每个结果都能回到证据。
 - **无认证验证**：剥离 Cookie、Authorization 等认证信息重放请求，直击未授权与弱鉴权。
-- **本地报告**：API Surface、真实流量、验证结果与敏感信息集中呈现。
+- **本地报告**：发现的 API、无认证重放结果与敏感信息集中呈现。
 
 ## 快速开始
 
@@ -132,10 +132,9 @@ TraceSurface 会重放两类请求：从前端源码推导出的 API 候选，�
 
 | 视图 | 用途 |
 | --- | --- |
-| **API Surface** | 查看解析后的前端 API 候选、调用点、证据层级和 baseURL 来源 |
-| **Verification** | 查看主动重放的请求、响应、状态码与命中结果 |
-| **Network** | 查看浏览器真实 Fetch/XHR、发起调用栈及对应的无认证重放 |
-| **Secrets** | 查看前端产物中的敏感信息命中与上下文 |
+| **APIs** | 从前端还原出的接口清单，包含浏览器真实打过的请求 |
+| **Replays** | 无认证重放的请求、响应、状态码与命中结果 |
+| **Secrets** | 前端产物中的敏感信息命中与上下文 |
 
 ## 工作原理
 

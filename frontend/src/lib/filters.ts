@@ -2,14 +2,10 @@
 export const METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"] as const;
 export const BUCKETS = ["2xx", "3xx", "4xx", "5xx"] as const;
 export const RESPONSE_TYPES = ["json", "html", "text", "other"] as const;
-export const TIERS = ["L1", "L2", "L3", "L4"] as const;
-export const STATUSES = ["confirmed", "inferred", "ast_full", "not_inferred"] as const;
 
 export type Method = (typeof METHODS)[number];
 export type Bucket = (typeof BUCKETS)[number];
 export type ResponseType = (typeof RESPONSE_TYPES)[number];
-export type Tier = (typeof TIERS)[number];
-export type Status = (typeof STATUSES)[number];
 
 export type FilterState = {
   search: string;
@@ -18,8 +14,6 @@ export type FilterState = {
   methods: Method[];
   buckets: Bucket[];
   respCts: ResponseType[];
-  tiers: Tier[];
-  statuses: Status[];
 };
 
 export type SortState = {
@@ -35,8 +29,6 @@ export function defaultFilters(): FilterState {
     methods: [...METHODS],
     buckets: ["2xx"],
     respCts: ["json", "text", "other"],
-    tiers: [...TIERS],
-    statuses: [...STATUSES],
   };
 }
 
@@ -51,13 +43,11 @@ export function sanitizeFilters(value: unknown): FilterState {
   };
   return {
     search: typeof raw.search === "string" ? raw.search : base.search,
-    domain: typeof raw.domain === "string" ? raw.domain : base.domain,
+    domain: "",
     target: typeof raw.target === "string" ? raw.target : base.target,
     methods: keep(METHODS, raw.methods, base.methods),
     buckets: keep(BUCKETS, raw.buckets, base.buckets),
     respCts: keep(RESPONSE_TYPES, raw.respCts, base.respCts),
-    tiers: keep(TIERS, raw.tiers, base.tiers),
-    statuses: keep(STATUSES, raw.statuses, base.statuses),
   };
 }
 
@@ -77,9 +67,7 @@ export function isFilterAtDefault(filters: FilterState) {
     filters.target === base.target &&
     same(filters.methods, base.methods) &&
     same(filters.buckets, base.buckets) &&
-    same(filters.respCts, base.respCts) &&
-    same(filters.tiers, base.tiers) &&
-    same(filters.statuses, base.statuses)
+    same(filters.respCts, base.respCts)
   );
 }
 

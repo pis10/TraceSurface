@@ -90,6 +90,7 @@ class ScanLifecycle:
                 url=row["request_url"],
                 raw_body=row["post_data"],
                 content_type=row["content_type"],
+                resolution_id=row["resolution_id"],
             )
             for row in rows
             if row["request_url"]

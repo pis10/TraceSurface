@@ -18,12 +18,13 @@ type SelectPopoverProps = {
   value: string;
   allLabel: string;
   allMeta?: string;
+  hint?: string;
   options: Option[];
   icon?: "check" | "globe";
   onChange: (value: string) => void;
 };
 
-export function SelectPopover({ label, value, allLabel, allMeta, options, icon = "check", onChange }: SelectPopoverProps) {
+export function SelectPopover({ label, value, allLabel, allMeta, hint, options, icon = "check", onChange }: SelectPopoverProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -43,7 +44,11 @@ export function SelectPopover({ label, value, allLabel, allMeta, options, icon =
       <PopoverTrigger asChild>
         <Button
           variant="subtle"
-          className={cn("min-w-[200px] justify-start px-3 font-mono text-[11.5px]", value && "border-brand bg-[var(--brand-soft)] text-brand")}
+          title={hint || label}
+          className={cn(
+            "h-8 min-w-[8.5rem] max-w-[16rem] justify-start px-2.5 font-mono text-[11.5px]",
+            value && "border-brand bg-[var(--brand-soft)] text-brand",
+          )}
         >
           <Icon className="h-3.5 w-3.5 shrink-0 text-text-4" />
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis text-left">{value || label}</span>

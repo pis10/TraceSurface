@@ -5,7 +5,7 @@ from tracesurface.inference.base_url import (
     dedup_in_scan,
     propagate_methods,
 )
-from tracesurface.inference.cdp_match import match_cdp_ast
+from tracesurface.inference.cdp_match import match_cdp_ast, merge_runtime_apis
 from tracesurface.inference.client_graph import ClientGraph
 from tracesurface.inference.resolve_graph import resolve_graph
 from tracesurface.models import (
@@ -46,7 +46,7 @@ def infer(
     )
 
     propagated = propagate_methods(resolved, confirmed)
-    resolutions = dedup_in_scan(propagated)
+    resolutions = merge_runtime_apis(dedup_in_scan(propagated), matched.cdp_only)
     route_facts = tuple(bundle.route_facts)
     result = ScanResult(
         target_url=bundle.target_url,

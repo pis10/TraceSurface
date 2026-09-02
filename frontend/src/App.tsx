@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilterBar } from "@/components/layout/FilterBar";
 import { PurgeDialog } from "@/components/layout/PurgeDialog";
 import { TopBar } from "@/components/layout/TopBar";
-import { NetworkView } from "@/components/network/NetworkView";
 import { ReplaysView } from "@/components/replays/ReplaysView";
 import { SecretsView } from "@/components/secrets/SecretsView";
 import { ApiSurfaceView } from "@/components/surface/ApiSurfaceView";
@@ -11,7 +10,7 @@ import { Toast } from "@/components/shared/Toast";
 import { api } from "@/lib/api";
 import { defaultFilters, sanitizeFilters, type FilterState, type SortState } from "@/lib/filters";
 import { defaultHighValue, sanitizeHighValue, type HighValueState } from "@/lib/high-value";
-import type { DomainSummary, Stats, TargetSummary } from "@/types/api";
+import type { Stats, TargetSummary } from "@/types/api";
 import type { MainTab } from "@/types/state";
 
 const FILTERS_KEY = "tracesurface:filters";
@@ -24,10 +23,9 @@ export default function App() {
   const [highValue, setHighValue] = useState<HighValueState>(() => readStorage(HIGH_VALUE_KEY, defaultHighValue(), sanitizeHighValue));
   const [activeMainTab, setActiveMainTab] = useState<MainTab>(() => {
     const raw = localStorage.getItem(MAIN_TAB_KEY);
-    return raw === "cdp" || raw === "secrets" || raw === "replays" || raw === "surface" ? raw : "surface";
+    return raw === "secrets" || raw === "replays" || raw === "surface" ? raw : "surface";
   });
   const [stats, setStats] = useState<Stats | null>(null);
-  const [domains, setDomains] = useState<DomainSummary[]>([]);
   const [targets, setTargets] = useState<TargetSummary[]>([]);
   const [resultLabel, setResultLabel] = useState("-");
   const [purgeOpen, setPurgeOpen] = useState(false);
@@ -44,9 +42,8 @@ export default function App() {
   }, []);
 
   const reloadSummary = useCallback(async () => {
-    const [nextStats, nextDomains, nextTargets] = await Promise.all([api.stats(), api.domains(), api.targets()]);
+    const [nextStats, nextTargets] = await Promise.all([api.stats(), api.targets()]);
     setStats(nextStats);
-    setDomains(nextDomains.items);
     setTargets(nextTargets.items);
   }, []);
 
@@ -101,7 +98,6 @@ export default function App() {
   }, [reloadSummary]);
 
   const currentView = () => {
-    if (activeMainTab === "cdp") return <NetworkView key={`cdp-${dataVersion}`} filters={filters} toast={showToast} onResultLabel={setResultLabel} />;
     if (activeMainTab === "secrets") return <SecretsView key={`secrets-${dataVersion}`} filters={filters} toast={showToast} onResultLabel={setResultLabel} />;
     if (activeMainTab === "replays") {
       return (
@@ -134,7 +130,6 @@ export default function App() {
         activeTab={activeMainTab}
         filters={filters}
         highValue={highValue}
-        domains={domains}
         targets={targets}
         resultLabel={resultLabel}
         onFiltersChange={updateFilters}

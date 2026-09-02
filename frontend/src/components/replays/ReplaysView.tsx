@@ -11,7 +11,7 @@ import { KvGrid } from "@/components/shared/KvGrid";
 import { Pager } from "@/components/shared/Pager";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { bucketFromStatus, fmtBytes, fmtRelTime } from "@/lib/format";
+import { bucketFromStatus, fmtBytes, fmtRelTime, TIER_HINT } from "@/lib/format";
 import { parseSearchPrefix, isFilterAtDefault, type FilterState, type SortState } from "@/lib/filters";
 import { type HighValueState } from "@/lib/high-value";
 import { requestToCurl, requestToRawHttp } from "@/lib/request";
@@ -49,7 +49,6 @@ export function ReplaysView({ filters, highValue, sort, onSortChange, onResultLa
       methods: filters.methods.join(","),
       buckets: filters.buckets.join(","),
       resp_cts: filters.respCts.join(","),
-      tiers: filters.tiers.join(","),
       sort: `${sort.asc ? "" : "-"}${sort.k}`,
       offset: (page - 1) * pageSize,
       limit: pageSize,
@@ -66,7 +65,7 @@ export function ReplaysView({ filters, highValue, sort, onSortChange, onResultLa
     setPage(1);
     setSelectedId(null);
     setSelected(null);
-  }, [filters.search, filters.domain, filters.target, filters.methods, filters.buckets, filters.respCts, filters.tiers, highValue.on, highValue.builtinEnabled, highValue.customKeywords, sort]);
+  }, [filters.search, filters.domain, filters.target, filters.methods, filters.buckets, filters.respCts, highValue.on, highValue.builtinEnabled, highValue.customKeywords, sort]);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,12 +128,12 @@ export function ReplaysView({ filters, highValue, sort, onSortChange, onResultLa
                 </th>
                 <th>Method</th>
                 <th>Tier</th>
-                <th>Path <span className="text-text-4">- response excerpt</span></th>
+                <th>Path</th>
                 <th>
                   <SortHeader label="Size" column="resp_len" sort={sort} onChange={changeSort} align="right" />
                 </th>
                 <th>Type</th>
-                <th>Origin</th>
+                <th>API host</th>
               </tr>
             </thead>
             <tbody>
@@ -234,10 +233,10 @@ function ReplayRow({ item, selected, delay, onClick }: { item: ReplayListItem; s
     <tr className={cn("animate-fade-up", selected && "selected")} style={{ animationDelay: delay }} onClick={onClick}>
       <td><span className={`status-cell status-${bucket}`}><span className="status-bar" />{item.error || item.status == null ? "ERR" : item.status}</span></td>
       <td><span className={`method-badge method-${item.sent_method}`}>{item.sent_method}</span></td>
-      <td>{item.inference_tier ? <span className={`tier-badge tier-${item.inference_tier}`}>{item.inference_tier}</span> : <span className="text-text-4">-</span>}</td>
+      <td>{item.inference_tier ? <span className={`tier-badge tier-${item.inference_tier}`} title={TIER_HINT}>{item.inference_tier}</span> : <span className="text-text-4">-</span>}</td>
       <td className="min-w-0" title={item.sent_url}>
         <div className="flex items-center gap-1.5">
-          {item.cdp_request_id ? <span className="tag shrink-0 text-brand" title="对浏览器真实请求（Network）的无认证复发">NET</span> : null}
+          {item.cdp_request_id ? <span className="tag shrink-0 text-brand" title="浏览器真实请求的无认证重放">NET</span> : null}
           <span className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-text">{path}</span>
         </div>
         {preview ? <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-text-3">{preview}</div> : null}
@@ -308,11 +307,11 @@ function ReplayDetailPanel({
           {replay.sent_url}
         </button>
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10.5px] text-text-3">
-          <span className="min-w-0 break-all">ORIGIN <b className="text-text">{replay.domain || "-"}</b></span>
+          <span className="min-w-0 break-all">API host <b className="text-text">{replay.domain || "-"}</b></span>
           <span className="min-w-0 break-all">SIZE <b className="text-text">{fmtBytes(replay.resp_len)}</b></span>
           <span className="min-w-0 break-all">TYPE <b className="text-text">{replay.resp_ct || "-"}</b></span>
           <span className="min-w-0 break-all">TIME <b className="text-text">{replay.time_ms ?? 0}ms</b></span>
-          {replay.cdp_request_id ? <span className="min-w-0 break-all">SOURCE <b className="text-brand">Network 无认证复发</b></span> : null}
+          {replay.cdp_request_id ? <span className="min-w-0 break-all">SOURCE <b className="text-brand">浏览器真实请求重放</b></span> : null}
         </div>
       </div>
       <DetailTabs
@@ -350,7 +349,7 @@ function ReplayResponse({ replay, headers, bucket, bodyRef }: { replay: ReplayDe
             { label: "Status", value: <span className={`status-${bucket}`}>{replay.error || replay.status}</span> },
             { label: "Time", value: `${replay.time_ms ?? 0} ms` },
             { label: "Length", value: fmtBytes(replay.resp_len) },
-            { label: "Tier", value: replay.inference_tier ? <span className={`tier-badge tier-${replay.inference_tier}`}>{replay.inference_tier}</span> : "-", hidden: !replay.inference_tier },
+            { label: "Tier", value: replay.inference_tier ? <span className={`tier-badge tier-${replay.inference_tier}`} title={TIER_HINT}>{replay.inference_tier}</span> : "-", hidden: !replay.inference_tier },
             { label: "Base 出处", value: replay.base_source, hidden: !replay.base_source },
             { label: "为何非更高 tier", value: replay.why_not_higher_tier, hidden: !replay.why_not_higher_tier },
             { label: "备注", value: "正文超 1MB，已截断展示", hidden: !replay.resp_truncated },
@@ -414,9 +413,9 @@ function ReplayProvenance({ replay }: { replay: ReplayDetail }) {
       <div className="section-title">Provenance</div>
       <KvGrid
         items={[
-          { label: "来源", value: replay.cdp_request_id ? "Network 真实请求无认证复发" : "推导候选发包" },
+          { label: "来源", value: replay.cdp_request_id ? "浏览器真实请求的无认证重放" : "推导候选发包" },
           { label: "Variant", value: replay.variant || "-" },
-          { label: "Resolution ID", value: replay.resolution_id ? `#${replay.resolution_id}` : "-", hidden: !!replay.cdp_request_id },
+          { label: "API ID", value: replay.resolution_id ? `#${replay.resolution_id}` : "-", hidden: !replay.resolution_id },
           { label: "CDP 请求 ID", value: replay.cdp_request_id ? `#${replay.cdp_request_id}` : "-", hidden: !replay.cdp_request_id },
           { label: "Scan ID", value: replay.scan_id ? `#${replay.scan_id}` : "-" },
           { label: "Created", value: replay.created_at ? `${fmtRelTime(replay.created_at)} ago` : "-" },

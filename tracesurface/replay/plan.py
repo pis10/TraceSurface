@@ -130,7 +130,7 @@ class ReplayPlanBuilder:
         has_body = bool(target.raw_body)
         return (
             ReplayRequest(
-                resolution_id=None,
+                resolution_id=target.resolution_id,
                 cdp_request_id=target.cdp_request_id,
                 method=method,
                 url=url,
