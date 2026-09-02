@@ -15,7 +15,7 @@
 
 TraceSurface 面向渗透测试、安全评估与 API 资产盘点。从一个 URL 出发，它同时追踪浏览器运行时流量、解析 JavaScript AST。调用栈坐标将动静两端精确对齐，补全 baseURL，挖出页面从未触发的 API；无认证重放随后验证未授权与弱鉴权。
 
-**核心原则：真实请求负责确认，静态分析负责扩展；每条 API 都有证据，每层推导都有依据。**
+**核心原则：真实请求给出 runtime 证据，静态分析负责扩展；每条 API 都有证据，每层推导都有依据。**
 
 ## 实战演示：扫描站点登录页
 
@@ -35,15 +35,15 @@ tracesurface scan https://vue.ruoyi.vip/login
 | 指标 | 结果 |
 | --- | --- |
 | AST 调用点 | 316（去重前） |
-| 还原出的 API | 135（已确认 1，仅 CDP 0，L1 125 · L2 3 · L3 3 · L4 3） |
+| 还原出的 API | 135（runtime 1 · full-url 1 · L1 124 · L2 3 · L3 3 · L4 3） |
 | 前端路由 | 发现 19，访问 19 |
 | 重放请求 | 92（2xx 88，4xx 4） |
 | 敏感信息命中 | 1 |
-| 耗时 | 47.7s |
+| 耗时 | 46.3s |
 
 一个验证码请求，最终还原出 135 个 API。角色、菜单、部门、字典、监控、AI 会话——这些当前页面从未触发的后台接口，被一并挖了出来。
 
-![报告界面：从登录页还原出的若依 API](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
+![报告界面：无认证重放结果](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
 
 > [!NOTE]
 > 88 条 2xx 里，有 79 条在响应体返回了 `code: 401`。
@@ -53,8 +53,8 @@ tracesurface scan https://vue.ruoyi.vip/login
 - **真实浏览器追踪**：捕获 Fetch/XHR、发起调用栈、脚本、路由与微前端入口，拿到页面真实运行证据。
 - **JavaScript AST 深挖**：识别 `fetch`、XHR、axios、自定义封装与网关调用，从代码中找回未触发接口。
 - **懒加载穿透**：还原 webpack / Vite Chunk 映射，主动展开业务代码，不等用户逐页点击。
-- **Stack-to-AST 对齐**：将 CDP 发起栈精确绑定源码调用点，确认请求并还原 baseURL。
-- **证据驱动推导**：以 L1–L4 标注 URL 的推导强度，每个结果都能回到证据。
+- **Stack-to-AST 对齐**：将 CDP 发起栈精确绑定源码调用点，标成 runtime，并还原 baseURL。
+- **证据驱动推导**：按 runtime / full-url / L1–L4 / no-url 标注证据强度，每个结果都能回到依据。
 - **无认证验证**：剥离 Cookie、Authorization 等认证信息重放请求，直击未授权与弱鉴权。
 - **本地报告**：发现的 API、无认证重放结果与敏感信息集中呈现。
 
@@ -146,24 +146,27 @@ TraceSurface 把运行时流量与静态调用点合成一条证据链：浏览�
 flowchart LR
     A["CDP<br/>真实请求 + 发起调用栈"] --> C["坐标对齐<br/>script URL · line · column"]
     B["tree-sitter<br/>API 调用点 + source span"] --> C
-    C --> D["Confirmed<br/>运行时请求 ↔ 源码调用点"]
+    C --> D["runtime<br/>运行时请求 ↔ 源码调用点"]
     D --> E["Evidence-driven<br/>API Surface"]
 ```
 
 1. CDP 记录 Fetch/XHR 的脚本、行号和列号。
 2. tree-sitter 提取 API 调用点及源码位置。
-3. 坐标命中后，请求被标记为 Confirmed，并可为其他调用点提供 baseURL。
+3. 坐标命中后，请求标成 runtime，并可为其他调用点提供 baseURL。
 
 ### 证据层级
 
-Confirmed 表示运行时请求已命中源码调用点；L1–L4 表示其他 URL 的推导强度。
+每条 API 落在一条证据轴上。runtime 是浏览器实际打到的请求；其余按 URL 从哪里来、把握有多强分层。
 
 | 层级 | 含义 |
 | --- | --- |
-| **L1 Full** | 唯一绑定，或源码中已有完整 URL |
-| **L2 Bound** | 通过 client 关系或有限候选绑定 |
-| **L3 Global** | 使用站点内已发现的 baseURL |
-| **L4 Origin** | 回退到目标站点 origin |
+| **runtime** | 浏览器真实打过这条请求 |
+| **full-url** | 源码里已经是完整 URL，不用拼 |
+| **L1** | 路径能唯一绑到一个已知 base |
+| **L2** | 通过 client 关系或扇出绑定 |
+| **L3** | 使用本轮扫到的全局 base |
+| **L4** | 仅用目标站点 origin 兜底 |
+| **no-url** | 找到了调用点，但还拼不出完整 URL |
 
 ## 数据目录
 

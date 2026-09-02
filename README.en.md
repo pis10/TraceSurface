@@ -15,7 +15,7 @@
 
 TraceSurface is built for penetration testing, security assessment, and API inventory. Starting from one URL, it traces runtime traffic in a real browser while parsing JavaScript ASTs across entry scripts, lazy chunks, and micro-frontends. Initiator coordinates pin real requests back to source call sites, recovering base URLs and complete endpoints. TraceSurface then strips browser credentials and replays those requests to expose missing or weak authorization.
 
-**Core principle: runtime requests confirm; static analysis expands. Every API carries evidence, and every inference tier has a reason.**
+**Core principle: runtime requests provide evidence; static analysis expands. Every API carries evidence, and every grade has a reason.**
 
 ## Case Study: Scanning a Login Page
 
@@ -34,15 +34,15 @@ The page triggers only `GET /prod-api/captchaImage`, but that single request pro
 | Metric | Result |
 | --- | --- |
 | AST call sites | 316 (before dedup) |
-| Recovered APIs | 135 (1 confirmed, 0 CDP-only, L1 125 · L2 3 · L3 3 · L4 3) |
+| Recovered APIs | 135 (runtime 1 · full-url 1 · L1 124 · L2 3 · L3 3 · L4 3) |
 | Frontend routes | 19 found, 19 visited |
 | Requests replayed | 92 (88 2xx, 4 4xx) |
 | Secret matches | 1 |
-| Duration | 47.7s |
+| Duration | 46.3s |
 
 One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, monitoring, AI conversations — backend endpoints never triggered by the current page emerge directly from the frontend code.
 
-![Report: APIs recovered from the login page](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
+![Report: unauthenticated replay results](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
 
 > [!NOTE]
 > 79 of the 88 2xx responses returned `code: 401` in the body.
@@ -52,8 +52,8 @@ One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, m
 - **Real browser tracing**: captures Fetch/XHR, initiator stacks, scripts, routes, and micro-frontend entries as runtime evidence.
 - **JavaScript AST extraction**: recognizes `fetch`, XHR, axios, custom wrappers, and gateway calls to recover endpoints the page never triggered.
 - **Lazy-chunk traversal**: reconstructs webpack / Vite chunk maps and expands business code without waiting for manual navigation.
-- **Stack-to-AST alignment**: binds CDP initiator coordinates to source call sites, confirming requests and recovering base URLs.
-- **Evidence-driven inference**: grades URL derivations from L1 to L4, with every result traceable to evidence.
+- **Stack-to-AST alignment**: binds CDP initiator coordinates to source call sites, marks them runtime, and recovers base URLs.
+- **Evidence-driven inference**: grades each API as runtime / full-url / L1–L4 / no-url, with every result traceable to evidence.
 - **Credential-free verification**: strips Cookie, Authorization, and other credentials before replaying requests to expose authorization gaps.
 - **Local report**: discovered APIs, unauthenticated replay results, and secret matches in one place.
 
@@ -145,24 +145,27 @@ Every browser request carries its initiating script, line, and column; every AST
 flowchart LR
     A["CDP<br/>real request + initiator stack"] --> C["Coordinate alignment<br/>script URL · line · column"]
     B["tree-sitter<br/>API call site + source span"] --> C
-    C --> D["Confirmed<br/>runtime request ↔ source call site"]
+    C --> D["runtime<br/>runtime request ↔ source call site"]
     D --> E["Evidence-driven<br/>API Surface"]
 ```
 
 1. CDP records the script, line, and column for Fetch/XHR requests.
 2. tree-sitter extracts API call sites and source locations.
-3. A coordinate match marks the request as Confirmed and can provide a base URL for other call sites.
+3. A coordinate match marks the request as runtime and can provide a base URL for other call sites.
 
-### Evidence Tiers
+### Evidence Grades
 
-Confirmed means a runtime request matched a source call site. L1–L4 describe the strength of other URL inferences.
+Every API sits on one evidence axis. runtime is a request the browser actually made; the rest describe where the URL came from and how strongly it is bound.
 
-| Tier | Meaning |
+| Grade | Meaning |
 | --- | --- |
-| **L1 Full** | Unique binding, or a full URL already present in source |
-| **L2 Bound** | Bound through a client relationship or a limited candidate set |
-| **L3 Global** | Uses a base URL already found on the site |
-| **L4 Origin** | Falls back to the target origin |
+| **runtime** | The browser actually issued this request |
+| **full-url** | The source already contains a complete URL |
+| **L1** | The path binds uniquely to a known base |
+| **L2** | Bound through a client relationship or fan-out |
+| **L3** | Uses a base discovered in this scan |
+| **L4** | Falls back to the target origin |
+| **no-url** | A call site exists, but no complete URL can be built |
 
 ## Data Directory
 
