@@ -13,18 +13,20 @@ if sys.platform == "win32":
     cast(TextIOWrapper, sys.stderr).reconfigure(encoding="utf-8")
 
 import typer
+from typer.core import TyperGroup
 
 from tracesurface import __version__, ui
 from tracesurface.config import DEFAULT_SETTINGS
 
-_APP_HELP = """前端 API 发现与验证工具
 
-自动发现 SPA / 微前端站点调用的 API 接口，并发包验证可达性。
-适用于 API 资产盘点与未授权 / 弱鉴权探测。
-"""
+class _BannerGroup(TyperGroup):
+    def format_help(self, ctx, formatter):  # noqa: D102
+        ui.print_banner()
+        super().format_help(ctx, formatter)
+
 
 app = typer.Typer(
-    help=_APP_HELP,
+    cls=_BannerGroup,
     add_completion=False,
     no_args_is_help=True,
     rich_markup_mode="rich",
@@ -129,16 +131,16 @@ def _ensure_browser() -> None:
     ui.success("Chromium 已就绪")
 
 
-@app.command(short_help="扫描站点，发现 API 并发包验证")
+@app.command(short_help="扫描站点，还原 API 并发包验证")
 def scan(
     url: str | None = typer.Argument(
-        None, help="要扫描的站点 URL", rich_help_panel="目标"
+        None, help="站点 URL", rich_help_panel="目标"
     ),
     file: Path | None = typer.Option(
         None,
         "--file",
         "-f",
-        help="从文件批量读取 URL（每行一个，# 开头为注释）",
+        help="批量目标文件（每行一条 URL，# 开头为注释）",
         rich_help_panel="目标",
     ),
     site_concurrency: int = typer.Option(
@@ -147,7 +149,7 @@ def scan(
         "-s",
         min=1,
         max=15,
-        help=f"同时扫描的站点 Context 数（默认 {DEFAULT_SETTINGS.workers.site_concurrency}，最多 15）",
+        help="同时扫描的站点数",
         rich_help_panel="并发",
     ),
     replay_concurrency: int = typer.Option(
@@ -156,10 +158,7 @@ def scan(
         "-r",
         min=1,
         max=50,
-        help=(
-            f"全批次发包并发上限（默认 "
-            f"{DEFAULT_SETTINGS.replay.concurrency}，最多 50）"
-        ),
+        help="全批次发包并发上限",
         rich_help_panel="并发",
     ),
     cpu_workers: int = typer.Option(
@@ -167,22 +166,19 @@ def scan(
         "--cpu-workers",
         min=1,
         max=8,
-        help=(
-            f"CPU 分析进程数（AST / secrets / 推导，默认 "
-            f"{DEFAULT_SETTINGS.workers.cpu_workers}，最多 8）"
-        ),
+        help="CPU 分析进程数（AST / secrets / 推导）",
         rich_help_panel="并发",
     ),
     replay_opt: bool = typer.Option(
         True,
         "--replay/--no-replay",
-        help="是否扫描后自动发包验证（默认开启）",
+        help="扫描后自动发包验证",
         rich_help_panel="发包",
     ),
     allow_destructive: bool = typer.Option(
         False,
         "--allow-destructive",
-        help="放行破坏性方法（DELETE/PUT/PATCH/HEAD/OPTIONS），默认仅发 GET/POST",
+        help="放行破坏性方法（默认仅 GET/POST）",
         rich_help_panel="发包",
     ),
     auth: Path | None = typer.Option(
@@ -194,23 +190,20 @@ def scan(
     no_auth: bool = typer.Option(
         False,
         "--no-auth",
-        help="本次扫描不加载任何登录态（强制无登录态探测）",
+        help="不加载登录态（强制无授权探测）",
         rich_help_panel="登录态",
     ),
     headed: bool = typer.Option(
         False,
         "--headed",
-        help="显示浏览器窗口，可手动点按触发更多接口（批量慎用）",
+        help="显示浏览器窗口，可手动操作触发更多接口",
         rich_help_panel="调试",
     ),
     wait_ms: int = typer.Option(
         DEFAULT_SETTINGS.collection.bootstrap_wait_ms,
         "--wait-ms",
         min=0,
-        help=(
-            f"首屏 networkidle 最大等待时间，毫秒（默认 {DEFAULT_SETTINGS.collection.bootstrap_wait_ms}；"
-            "--headed 下会等满整窗供手动操作）"
-        ),
+        help="首屏 networkidle 等待上限（毫秒）",
         rich_help_panel="调试",
     ),
 ) -> None:
@@ -292,11 +285,11 @@ def scan(
     render_summary(results, time.perf_counter() - t0, do_replay=replay_opt)
 
 
-@app.command(short_help="登录目标站点并保存登录态，供后续扫描复用")
+@app.command(short_help="登录站点并保存登录态，供扫描复用")
 def login(
     url: str | None = typer.Argument(
         None,
-        help="登录起始 URL（不传则浏览器空白启动，自行输入地址）",
+        help="登录起始 URL（省略则空白启动，手动输入）",
     ),
     output: Path | None = typer.Option(
         None,

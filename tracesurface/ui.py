@@ -21,6 +21,7 @@ __all__ = [
     "escape",
     "kv_block",
     "notice",
+    "print_banner",
     "section",
     "success",
     "warn",
@@ -100,6 +101,35 @@ def brand(subtitle: str = "") -> None:
 
     console.print()
     console.print(line)
+    console.print()
+
+
+_BANNER = r"""
+ ______                 ____         ___
+/_  __/______ ________ / __/_ ______/ _/__ ________
+ / / / __/ _ `/ __/ -_)\ \/ // / __/ _/ _ `/ __/ -_)
+/_/ /_/  \_,_/\__/\__/___/\_,_/_/ /_/ \_,_/\__/\__/
+"""
+
+_TAGLINE = "动态追踪 × 静态分析，从 JavaScript 还原完整 API 面"
+_REPO = "https://github.com/pis10/TraceSurface"
+
+
+def print_banner() -> None:
+    from tracesurface import __version__
+
+    lines = [line.rstrip() for line in _BANNER.strip("\n").splitlines()]
+
+    console.print()
+    if console.width >= max(len(line) for line in lines) + 2:
+        for line in lines:
+            console.print(f"  [tracesurface.brand]{escape(line)}[/]")
+    else:
+        console.print(f"  [tracesurface.brand]{SYM.brand} TraceSurface[/]")
+    console.print(
+        f"  [tracesurface.dim]v{__version__} {SYM.sep} {_REPO}[/]"
+    )
+    console.print(f"  {_TAGLINE}")
     console.print()
 
 
