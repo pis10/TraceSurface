@@ -206,6 +206,15 @@ def scan(
         help="首屏 networkidle 等待上限（毫秒）",
         rich_help_panel="调试",
     ),
+    block_redirects: bool = typer.Option(
+        False,
+        "--no-redirect",
+        help=(
+            "拦截站外重定向（含 SSO 登录跳转），停留在目标站采集；"
+            "适合强制跳登录页导致无法提取的站点"
+        ),
+        rich_help_panel="调试",
+    ),
 ) -> None:
     if auth is not None and no_auth:
         ui.abort("--auth 与 --no-auth 不能同时指定")
@@ -277,6 +286,7 @@ def scan(
                 auth_state=auth_state,
                 headed=headed,
                 allow_destructive=allow_destructive,
+                block_redirects=block_redirects,
                 output=scan_output,
             )
         )

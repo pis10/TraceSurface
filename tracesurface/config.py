@@ -33,6 +33,7 @@ class HTTPSettings:
 @dataclass(frozen=True, slots=True)
 class CollectionSettings:
     redirect_guard_enabled: bool = True
+    block_redirects: bool = False
     bootstrap_wait_ms: int = 7000
     bootstrap_goto_timeout_ms: int = 10000
     cdp_stack_depth: int = 128

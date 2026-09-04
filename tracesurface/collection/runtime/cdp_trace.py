@@ -4,7 +4,7 @@ import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page, Response
@@ -17,8 +17,27 @@ from tracesurface.collection.runtime.request_classifier import (
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.models import CDPRequest, CDPResult, StackFrame
 from tracesurface.policies import ResponseCapturePolicy, TargetContext
+from tracesurface.urls import canonical_origin_key
 
 _FINALIZE_TIMEOUT_S = 2.0
+
+_BLOCKED_REDIRECT_STATUS = 204
+
+
+async def _fetch_continue(client: Any, request_id: str) -> None:
+    with suppress(PlaywrightError):
+        await client.send("Fetch.continueRequest", {"requestId": request_id})
+
+
+async def _fetch_fulfill_empty(client: Any, request_id: str) -> None:
+    with suppress(PlaywrightError):
+        await client.send(
+            "Fetch.fulfillRequest",
+            {
+                "requestId": request_id,
+                "responseCode": _BLOCKED_REDIRECT_STATUS,
+            },
+        )
 
 
 def _expand_stack(stack: dict[str, Any]) -> list[StackFrame]:
@@ -48,6 +67,25 @@ class CDPCollectRequest:
     goto_timeout_ms: int
     total_timeout_ms: int | None = None
     headed: bool = False
+    block_redirects: bool = False
+
+
+def _is_redirect(status: int | None) -> bool:
+    return status is not None and 300 <= status < 400
+
+
+def _location_of(headers: dict[str, Any]) -> str:
+    for key, value in headers.items():
+        if key.lower() == "location":
+            return str(value)
+    return ""
+
+
+def _resolve_redirect_target(location: str, base_url: str) -> str:
+    try:
+        return urljoin(base_url, location)
+    except ValueError:
+        return location
 
 
 class CDPTraceSession:
@@ -84,6 +122,8 @@ class CDPTraceSession:
         collection_error = ""
         navigation_ok = True
         html_content = ""
+        blocked_redirect_count = 0
+        target_origin = canonical_origin_key(request.target_url)
 
         def on_script_response(response: Response) -> None:
             if response.request.resource_type != "script":
@@ -105,6 +145,9 @@ class CDPTraceSession:
                 "Debugger.setAsyncCallStackDepth",
                 {"maxDepth": DEFAULT_SETTINGS.collection.cdp_stack_depth},
             )
+
+            if request.block_redirects:
+                await client.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
 
             def on_request(params: dict[str, Any]) -> None:
                 request_data = params["request"]
@@ -177,6 +220,49 @@ class CDPTraceSession:
             client.on("Network.requestWillBeSent", on_request)
             client.on("Network.responseReceived", on_response)
             client.on("Network.loadingFinished", on_loading_finished)
+
+            def on_fetch_paused(params: dict[str, Any]) -> None:
+                nonlocal blocked_redirect_count
+                request_id = params.get("requestId", "")
+                paused = params.get("request", {}) or {}
+                paused_url = paused.get("url", "")
+
+                response_status_line = params.get("responseStatusCode")
+                is_response_stage = response_status_line is not None
+
+                if not is_response_stage:
+                    if (
+                        params.get("resourceType") == "Document"
+                        and canonical_origin_key(paused_url) != target_origin
+                    ):
+                        blocked_redirect_count += 1
+                        asyncio.create_task(
+                            _fetch_fulfill_empty(client, request_id)
+                        )
+                        return
+
+                    asyncio.create_task(_fetch_continue(client, request_id))
+                    return
+
+                response_headers = dict(params.get("responseHeaders") or {})
+                if _is_redirect(int(response_status_line)):
+                    location = _location_of(response_headers)
+                    redirect_to = (
+                        _resolve_redirect_target(location, paused_url)
+                        if location
+                        else ""
+                    )
+                    if redirect_to and canonical_origin_key(redirect_to) != target_origin:
+                        blocked_redirect_count += 1
+                        asyncio.create_task(
+                            _fetch_fulfill_empty(client, request_id)
+                        )
+                        return
+
+                asyncio.create_task(_fetch_continue(client, request_id))
+
+            if request.block_redirects:
+                client.on("Fetch.requestPaused", on_fetch_paused)
 
             try:
                 await page.goto(
@@ -282,6 +368,9 @@ class CDPTraceSession:
                     timed_out = True
         finally:
             page.remove_listener("response", on_script_response)
+            if request.block_redirects:
+                with suppress(PlaywrightError):
+                    await client.send("Fetch.disable")
             with suppress(PlaywrightError):
                 await client.detach()
 
@@ -302,4 +391,5 @@ class CDPTraceSession:
             json_response_bodies=json_response_bodies,
             timed_out=timed_out,
             collection_error=collection_error,
+            blocked_redirects=blocked_redirect_count,
         )
