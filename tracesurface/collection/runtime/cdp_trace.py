@@ -147,8 +147,15 @@ class CDPTraceSession:
             )
 
             if request.block_redirects:
-                await client.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
-
+                await client.send(
+                    "Fetch.enable",
+                    {
+                        "patterns": [
+                            {"urlPattern": "*", "requestStage": "Request"},
+                            {"urlPattern": "*", "requestStage": "Response"},
+                        ]
+                    },
+                )
             def on_request(params: dict[str, Any]) -> None:
                 request_data = params["request"]
                 url = request_data["url"]
