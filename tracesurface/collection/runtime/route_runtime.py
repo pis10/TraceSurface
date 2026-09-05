@@ -40,6 +40,7 @@ async def _visit_one(
                 wait_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
                 goto_timeout_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
                 total_timeout_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
+                block_redirects=state.settings.block_redirects,
             ),
         )
     except Exception as exc:

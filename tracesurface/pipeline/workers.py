@@ -77,6 +77,7 @@ class StageWorkers:
     cpu: ProcessPoolExecutor
     auth_state: dict[str, Any] | None = None
     headed: bool = False
+    block_redirects: bool = False
 
     async def run_collector(self) -> None:
         from tracesurface.collection.service import collect_site
@@ -100,6 +101,7 @@ class StageWorkers:
                         scan_id=job.scan_id,
                         auth_state=self.auth_state,
                         headed=self.headed,
+                        block_redirects=self.block_redirects,
                     )
 
                     if bundle.skipped:

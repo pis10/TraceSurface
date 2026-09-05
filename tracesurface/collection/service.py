@@ -17,6 +17,7 @@ from tracesurface.collection.session import DiscoverySession
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.models import CollectionBundle, ScanWarning
 from tracesurface.policies import TargetContext
+from tracesurface.urls import canonical_origin_key
 
 
 def detect_hash_prefix(page_url: str) -> str:
@@ -27,21 +28,8 @@ def detect_hash_prefix(page_url: str) -> str:
     return ""
 
 
-def _canonical_redirect_host(host: str) -> str:
-    host = (host or "").lower().strip(".")
-    return host[4:] if host.startswith("www.") else host
-
-
 def redirect_guard_origin(url: str) -> tuple[str, int | None]:
-    parsed = urlparse(url)
-    port = parsed.port
-
-    default_port = (
-        443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None
-    )
-    if port == default_port:
-        port = None
-    return (_canonical_redirect_host(parsed.hostname or ""), port)
+    return canonical_origin_key(url)
 
 
 def display_origin(url: str) -> str:
@@ -64,6 +52,7 @@ async def collect_site(
     scan_id: int | None = None,
     auth_state: dict[str, Any] | None = None,
     headed: bool = False,
+    block_redirects: bool = False,
 ) -> CollectionBundle:
     context_kwargs_base: dict[str, Any] = {
         "user_agent": DEFAULT_SETTINGS.browser.user_agent,
@@ -87,6 +76,7 @@ async def collect_site(
                 wait_ms=wait_ms,
                 goto_timeout_ms=DEFAULT_SETTINGS.collection.bootstrap_goto_timeout_ms,
                 headed=headed,
+                block_redirects=block_redirects,
             ),
         )
 
@@ -98,6 +88,7 @@ async def collect_site(
 
         redirect_blocked = (
             DEFAULT_SETTINGS.collection.redirect_guard_enabled
+            and not block_redirects
             and is_external_redirect(target_url, effective_url)
         )
         if redirect_blocked:
@@ -117,8 +108,18 @@ async def collect_site(
 
         state_target_url = page_url or target_url
 
+        if block_redirects and cdp_result.blocked_redirects:
+            effective_marker = effective_url if effective_url != target_url else ""
+            target_ctx = TargetContext(
+                requested_url=target_url,
+                effective_url=effective_marker or None,
+            )
+        else:
+            effective_marker = ""
+            target_ctx = TargetContext(state_target_url)
+
         state = DiscoverySession(
-            target=TargetContext(state_target_url),
+            target=target_ctx,
             ports=DiscoveryDeps(
                 http=http,
                 cpu=cpu,
@@ -133,6 +134,13 @@ async def collect_site(
             cdp_request_keys={r.dedup_key for r in cdp_result.requests},
             json_response_bodies=dict(cdp_result.json_response_bodies),
         )
+
+        if block_redirects and cdp_result.blocked_redirects:
+            state.record_event(
+                "redirects_blocked",
+                count=cdp_result.blocked_redirects,
+                effective_url=effective_marker,
+            )
 
         for js_url in cdp_result.js_urls:
             state.facts.add_js(

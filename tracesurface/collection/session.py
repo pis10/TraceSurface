@@ -33,6 +33,16 @@ def _format_cdp_collection_error(payload: EventPayload) -> str:
     return f"采集异常：{detail}" if detail else "采集异常"
 
 
+def _format_redirects_blocked(payload: EventPayload) -> str:
+    count = payload.get("count") or 0
+    target = str(payload.get("effective_url") or "")
+
+    parts = [f"已拦截站外跳转 {count} 次"]
+    if target:
+        parts.append(f"当前页：{target}")
+    return "，".join(parts)
+
+
 EVENT_FORMATTERS: dict[str, Callable[[EventPayload], str]] = {
     "recursion_error": (
         lambda payload: f"采集模块 {payload['explorer']} 递归过深，已跳过"
@@ -41,6 +51,7 @@ EVENT_FORMATTERS: dict[str, Callable[[EventPayload], str]] = {
         lambda payload: f"采集模块 {payload['explorer']} 异常，已跳过"
     ),
     "cdp_collection_error": _format_cdp_collection_error,
+    "redirects_blocked": _format_redirects_blocked,
 }
 
 

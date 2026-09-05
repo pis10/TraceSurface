@@ -39,6 +39,7 @@ class ScanRequest:
     auth_state: dict[str, Any] | None = None
     headed: bool = False
     allow_destructive: bool = False
+    block_redirects: bool = False
 
 
 class PipelineRunner:
@@ -130,6 +131,7 @@ class PipelineRunner:
                     cpu=cpu_executor,
                     auth_state=request.auth_state,
                     headed=request.headed,
+                    block_redirects=request.block_redirects,
                 )
 
                 tasks: list[asyncio.Task[None]] = []

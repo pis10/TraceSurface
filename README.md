@@ -110,6 +110,7 @@ uv sync
 | 只发现、不重放 | `tracesurface scan https://target.example --no-replay` |
 | 批量扫描 | `tracesurface scan -f targets.txt -s 10` |
 | 打开浏览器手动触发页面 | `tracesurface scan https://target.example --headed --wait-ms 15000` |
+| 站点强制跳登录页导致无法提取 | `tracesurface scan https://target.example --no-redirect` |
 | 保存登录态 | `tracesurface login https://sso.example.com` |
 | 强制不加载登录态 | `tracesurface scan https://target.example --no-auth` |
 | 启动报告 | `tracesurface serve` |
