@@ -15,8 +15,9 @@ from tracesurface.collection.runtime.auth import (
 from tracesurface.collection.runtime.cdp_trace import CDPCollectRequest, CDPTraceSession
 from tracesurface.collection.session import DiscoverySession
 from tracesurface.config import DEFAULT_SETTINGS
-from tracesurface.models import CollectionBundle, ScanWarning
+from tracesurface.models import CDPResult, CollectionBundle, ScanWarning
 from tracesurface.policies import TargetContext
+from tracesurface.urls import canonical_origin_key
 
 
 def detect_hash_prefix(page_url: str) -> str:
@@ -27,21 +28,8 @@ def detect_hash_prefix(page_url: str) -> str:
     return ""
 
 
-def _canonical_redirect_host(host: str) -> str:
-    host = (host or "").lower().strip(".")
-    return host[4:] if host.startswith("www.") else host
-
-
 def redirect_guard_origin(url: str) -> tuple[str, int | None]:
-    parsed = urlparse(url)
-    port = parsed.port
-
-    default_port = (
-        443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None
-    )
-    if port == default_port:
-        port = None
-    return (_canonical_redirect_host(parsed.hostname or ""), port)
+    return canonical_origin_key(url)
 
 
 def display_origin(url: str) -> str:
@@ -53,6 +41,32 @@ def display_origin(url: str) -> str:
 
 def is_external_redirect(requested_url: str, final_url: str) -> bool:
     return redirect_guard_origin(requested_url) != redirect_guard_origin(final_url)
+
+
+def _bootstrap_redirected_away(
+    target_url: str,
+    effective_url: str,
+    cdp_result: CDPResult,
+    *,
+    pin_navigation: bool,
+) -> str | None:
+    """首屏是否已失去目标站：返回跳转去向 URL 表示应跳过，None 表示继续采集。
+
+    钉住模式下 page.url 不可信（守卫否决后仍停在原站，也可能在采集间隙
+    被跳转逻辑溜走），只认"拦到过跳转且什么同源材料都没采到"；
+    非钉住模式按最终落地 URL 判定。
+    """
+    if pin_navigation:
+        if cdp_result.blocked_navigations and not (
+            cdp_result.html_content or cdp_result.js_urls or cdp_result.requests
+        ):
+            return cdp_result.blocked_navigations[0]
+        return None
+    if not DEFAULT_SETTINGS.collection.redirect_guard_enabled:
+        return None
+    if is_external_redirect(target_url, effective_url):
+        return effective_url
+    return None
 
 
 async def collect_site(
@@ -79,6 +93,9 @@ async def collect_site(
     await apply_auth_bundle_to_context(context, auth_state)
     page = await context.new_page()
     tracer = CDPTraceSession()
+    # 无认证扫描钉住目标站：否决主框架跨源导航，防止未登录外跳打断采集；
+    # 带登录态或有头模式不钉，SSO 往返可能是认证流程的一部分
+    pin_navigation = auth_state is None and not headed
     try:
         cdp_result = await tracer.collect(
             page,
@@ -87,6 +104,7 @@ async def collect_site(
                 wait_ms=wait_ms,
                 goto_timeout_ms=DEFAULT_SETTINGS.collection.bootstrap_goto_timeout_ms,
                 headed=headed,
+                pin_navigation=pin_navigation,
             ),
         )
 
@@ -96,16 +114,19 @@ async def collect_site(
         hash_prefix = detect_hash_prefix(effective_url)
         page_url = effective_url.split("?")[0]
 
-        redirect_blocked = (
-            DEFAULT_SETTINGS.collection.redirect_guard_enabled
-            and is_external_redirect(target_url, effective_url)
+        lost_to = _bootstrap_redirected_away(
+            target_url,
+            effective_url,
+            cdp_result,
+            pin_navigation=pin_navigation,
         )
-        if redirect_blocked:
+        if lost_to is not None:
+            reason = "且无同源内容可采集" if pin_navigation else ""
             warning = ScanWarning(
                 code="external_redirect_blocked",
                 message=(
-                    "首屏跳转站外，已跳过扫描"
-                    f"（{display_origin(target_url)} → {display_origin(effective_url)}）"
+                    f"首屏跳转站外{reason}，已跳过扫描"
+                    f"（{display_origin(target_url)} → {display_origin(lost_to)}）"
                 ),
             )
             return CollectionBundle(
@@ -114,6 +135,11 @@ async def collect_site(
                 warnings=(warning,),
                 skipped=True,
             )
+
+        if pin_navigation and is_external_redirect(target_url, effective_url):
+            # 采集间隙页面被跳转逻辑溜走：材料已在手，目标仍以原始 URL 为准
+            page_url = ""
+            hash_prefix = ""
 
         state_target_url = page_url or target_url
 
@@ -126,6 +152,7 @@ async def collect_site(
             ),
             settings=DEFAULT_SETTINGS.collection,
             scan_id=scan_id,
+            pin_navigation=pin_navigation,
             hash_prefix=hash_prefix,
             source_scope=scan_id if scan_id is not None else f"adhoc-{uuid4().hex}",
             facts=FactStore(),
@@ -159,6 +186,14 @@ async def collect_site(
             del html_source
 
         state.record_cdp_diagnostics("bootstrap", cdp_result, page_url=page_url)
+
+        if cdp_result.blocked_navigations:
+            unique_targets = tuple(dict.fromkeys(cdp_result.blocked_navigations))
+            state.record_event(
+                "navigation_pinned",
+                targets=unique_targets[:3],
+                count=len(cdp_result.blocked_navigations),
+            )
 
         await run_discovery_loop(state)
 

@@ -29,6 +29,19 @@ def origin_of(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else ""
 
 
+def canonical_origin_key(url: str) -> tuple[str, int | None]:
+    """归一化源点（剥离 www 前缀、默认端口归零），用于跨站跳转判定。"""
+    parts = urlsplit(url)
+    port = parts.port
+    default_port = (
+        443 if parts.scheme == "https" else 80 if parts.scheme == "http" else None
+    )
+    if port == default_port:
+        port = None
+    host = (parts.hostname or "").lower().strip(".")
+    return (host[4:] if host.startswith("www.") else host, port)
+
+
 def host_of(url: str) -> str:
     netloc = urlsplit(url).netloc or url
     return netloc.split("@")[-1]

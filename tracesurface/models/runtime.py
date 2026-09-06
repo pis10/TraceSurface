@@ -47,6 +47,7 @@ class CDPResult:
     json_response_bodies: dict[str, str] = field(default_factory=dict)
     timed_out: bool = False
     collection_error: str = ""
+    blocked_navigations: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from tracesurface.collection.deps import DiscoveryDeps
@@ -33,6 +34,18 @@ def _format_cdp_collection_error(payload: EventPayload) -> str:
     return f"采集异常：{detail}" if detail else "采集异常"
 
 
+def _format_navigation_pinned(payload: EventPayload) -> str:
+    targets = payload.get("targets") or ()
+    count = payload.get("count") or len(targets)
+    host = urlparse(str(targets[0])).hostname if targets else ""
+
+    parts = ["检测到未登录外跳"]
+    if host:
+        parts.append(f"（→ {host}，{count} 次）")
+    parts.append("，已钉住目标站采集，结果为未登录视角")
+    return "".join(parts)
+
+
 EVENT_FORMATTERS: dict[str, Callable[[EventPayload], str]] = {
     "recursion_error": (
         lambda payload: f"采集模块 {payload['explorer']} 递归过深，已跳过"
@@ -41,6 +54,7 @@ EVENT_FORMATTERS: dict[str, Callable[[EventPayload], str]] = {
         lambda payload: f"采集模块 {payload['explorer']} 异常，已跳过"
     ),
     "cdp_collection_error": _format_cdp_collection_error,
+    "navigation_pinned": _format_navigation_pinned,
 }
 
 
@@ -59,6 +73,7 @@ class DiscoverySession:
     ports: DiscoveryDeps
     settings: CollectionSettings
     scan_id: int | None = None
+    pin_navigation: bool = False
     hash_prefix: str = ""
     source_scope: int | str = field(default_factory=lambda: f"adhoc-{uuid4().hex}")
     facts: FactStore = field(default_factory=FactStore)

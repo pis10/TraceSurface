@@ -17,8 +17,24 @@ from tracesurface.collection.runtime.request_classifier import (
 from tracesurface.config import DEFAULT_SETTINGS
 from tracesurface.models import CDPRequest, CDPResult, StackFrame
 from tracesurface.policies import ResponseCapturePolicy, TargetContext
+from tracesurface.urls import canonical_origin_key
 
 _FINALIZE_TIMEOUT_S = 2.0
+
+_PIN_BLOCKED_STATUS = 204
+
+
+async def _fetch_continue(client: Any, request_id: str) -> None:
+    with suppress(PlaywrightError):
+        await client.send("Fetch.continueRequest", {"requestId": request_id})
+
+
+async def _fetch_fulfill_empty(client: Any, request_id: str) -> None:
+    with suppress(PlaywrightError):
+        await client.send(
+            "Fetch.fulfillRequest",
+            {"requestId": request_id, "responseCode": _PIN_BLOCKED_STATUS},
+        )
 
 
 def _expand_stack(stack: dict[str, Any]) -> list[StackFrame]:
@@ -48,6 +64,7 @@ class CDPCollectRequest:
     goto_timeout_ms: int
     total_timeout_ms: int | None = None
     headed: bool = False
+    pin_navigation: bool = False
 
 
 class CDPTraceSession:
@@ -80,6 +97,8 @@ class CDPTraceSession:
         text_body_pending: set[str] = set()
         finished_body_ids: set[str] = set()
         json_response_bodies: dict[str, str] = {}
+        blocked_navigations: list[str] = []
+        inflight_fetches: set[asyncio.Task[None]] = set()
         timed_out = False
         collection_error = ""
         navigation_ok = True
@@ -178,6 +197,46 @@ class CDPTraceSession:
             client.on("Network.responseReceived", on_response)
             client.on("Network.loadingFinished", on_loading_finished)
 
+            if request.pin_navigation:
+                await client.send(
+                    "Fetch.enable",
+                    {
+                        "patterns": [
+                            {
+                                "urlPattern": "*",
+                                "resourceType": "Document",
+                                "requestStage": "Request",
+                            }
+                        ]
+                    },
+                )
+                frame_tree = await client.send("Page.getFrameTree")
+                main_frame_id = frame_tree["frameTree"]["frame"]["id"]
+                target_origin = canonical_origin_key(request.target_url)
+
+                def on_fetch_paused(params: dict[str, Any]) -> None:
+                    request_id = params.get("requestId", "")
+                    try:
+                        paused_url = params.get("request", {}).get("url", "")
+                        blocked = (
+                            params.get("frameId") == main_frame_id
+                            and canonical_origin_key(paused_url) != target_origin
+                        )
+                    except Exception:
+                        blocked = False
+                        paused_url = ""
+                    if blocked:
+                        blocked_navigations.append(paused_url)
+                        task = asyncio.create_task(
+                            _fetch_fulfill_empty(client, request_id)
+                        )
+                    else:
+                        task = asyncio.create_task(_fetch_continue(client, request_id))
+                    inflight_fetches.add(task)
+                    task.add_done_callback(inflight_fetches.discard)
+
+                client.on("Fetch.requestPaused", on_fetch_paused)
+
             try:
                 await page.goto(
                     request.target_url,
@@ -185,16 +244,21 @@ class CDPTraceSession:
                     timeout=remaining_ms(request.goto_timeout_ms),
                 )
             except PlaywrightTimeoutError as exc:
-                if request.total_timeout_ms is None:
+                if request.total_timeout_ms is None and not blocked_navigations:
                     raise
                 navigation_ok = False
                 timed_out = True
-                collection_error = repr(exc)
+                if not blocked_navigations:
+                    collection_error = repr(exc)
             except PlaywrightError as exc:
-                if request.total_timeout_ms is None:
+                if blocked_navigations:
+                    # 导航被守卫否决：中止（ERR_ABORTED 等）属于预期，交由上层判定 skip
+                    navigation_ok = False
+                elif request.total_timeout_ms is None:
                     raise
-                navigation_ok = False
-                collection_error = repr(exc)
+                else:
+                    navigation_ok = False
+                    collection_error = repr(exc)
 
             if navigation_ok:
                 if request.headed:
@@ -282,6 +346,13 @@ class CDPTraceSession:
                     timed_out = True
         finally:
             page.remove_listener("response", on_script_response)
+            if request.pin_navigation:
+                if inflight_fetches:
+                    await asyncio.gather(
+                        *tuple(inflight_fetches), return_exceptions=True
+                    )
+                with suppress(PlaywrightError):
+                    await client.send("Fetch.disable")
             with suppress(PlaywrightError):
                 await client.detach()
 
@@ -302,4 +373,5 @@ class CDPTraceSession:
             json_response_bodies=json_response_bodies,
             timed_out=timed_out,
             collection_error=collection_error,
+            blocked_navigations=blocked_navigations,
         )

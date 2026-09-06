@@ -40,6 +40,7 @@ async def _visit_one(
                 wait_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
                 goto_timeout_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
                 total_timeout_ms=DEFAULT_SETTINGS.collection.route_total_timeout_ms,
+                pin_navigation=state.pin_navigation,
             ),
         )
     except Exception as exc:
@@ -54,6 +55,13 @@ async def _visit_one(
         return
 
     state.record_cdp_diagnostics("route", cdp, route=route, route_url=route_url)
+
+    if cdp.blocked_navigations:
+        state.record_event(
+            "navigation_pinned",
+            targets=tuple(dict.fromkeys(cdp.blocked_navigations))[:3],
+            count=len(cdp.blocked_navigations),
+        )
 
     has_partial_data = bool(cdp.js_urls or cdp.requests or cdp.html_content)
 
