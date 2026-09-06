@@ -102,15 +102,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           prev_tag="$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)"
-          {
-            echo "下载对应平台的压缩包，解压后即可运行。"
-            if [ -n "$prev_tag" ]; then
-              echo
-              echo "本次变更（$prev_tag → $GITHUB_REF_NAME）："
-              echo
-              git log --no-merges --pretty='- %s' "$prev_tag..$GITHUB_REF_NAME" | grep -v '^- Ship v' || true
-            fi
-          } > notes.md
+          if [ -n "$prev_tag" ]; then
+            git log --no-merges --pretty='- %s' "$prev_tag..$GITHUB_REF_NAME" | grep -v '^- Ship v' > notes.md || true
+          else
+            : > notes.md
+          fi
           gh release create "$GITHUB_REF_NAME" release/* \
             --verify-tag \
             --title "$GITHUB_REF_NAME" \
