@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import time
 from pathlib import Path
 
 from tracesurface.config import DEFAULT_SETTINGS
 
-MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+SCHEMA_FILE = Path(__file__).parent / "schema.sql"
 
 
 def get_home() -> Path:
@@ -49,68 +48,10 @@ def connect() -> sqlite3.Connection:
 
 
 def init() -> None:
+    """确保数据目录与库就绪：建目录、连接、按 schema.sql 幂等建表。"""
     get_home()
     conn = connect()
     try:
-        apply_migrations(conn)
+        conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
     finally:
         conn.close()
-
-
-def apply_migrations(conn: sqlite3.Connection) -> None:
-    had_migration_table = _table_exists(conn, "schema_migrations")
-    has_existing_schema = _table_exists(conn, "scans")
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations ("
-        "version INTEGER PRIMARY KEY, "
-        "applied_at INTEGER NOT NULL)"
-    )
-
-    if has_existing_schema and not had_migration_table:
-        conn.execute(
-            "INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
-            (1, int(time.time())),
-        )
-
-    applied = {
-        row["version"]
-        for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
-    }
-    for migration in _migration_files():
-        version = _migration_version(migration)
-        if version in applied:
-            continue
-        _apply_migration(conn, version, migration)
-        applied.add(version)
-
-
-def _migration_files() -> list[Path]:
-    return sorted(MIGRATIONS_DIR.glob("*.sql"))
-
-
-def _migration_version(path: Path) -> int:
-    return int(path.name.split("_", 1)[0])
-
-
-def _apply_migration(conn: sqlite3.Connection, version: int, migration: Path) -> None:
-    applied_at = int(time.time())
-    script = migration.read_text(encoding="utf-8")
-    try:
-        conn.executescript(
-            "BEGIN IMMEDIATE;\n"
-            f"{script}\n"
-            "INSERT INTO schema_migrations(version, applied_at) "
-            f"VALUES({version}, {applied_at});\n"
-            "COMMIT;"
-        )
-    except Exception:
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-
-
-def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone()
-    return row is not None

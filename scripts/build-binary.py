@@ -45,7 +45,7 @@ def main() -> None:
         f"--output-dir={OUTPUT_DIR}",
         "--output-filename=tracesurface",
         "--include-data-dir=tracesurface/server/static=tracesurface/server/static",
-        "--include-data-dir=tracesurface/storage/sqlite/migrations=tracesurface/storage/sqlite/migrations",
+        "--include-data-files=tracesurface/storage/sqlite/schema.sql=tracesurface/storage/sqlite/schema.sql",
         "--include-data-files=tracesurface/secrets/rules.yml=tracesurface/secrets/rules.yml",
     ]
     if sys.platform == "win32":
