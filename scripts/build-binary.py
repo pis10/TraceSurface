@@ -39,6 +39,12 @@ def main() -> None:
         "--python-flag=-m",
         "--assume-yes-for-downloads",
         "--playwright-include-browser=none",
+        "--user-package-configuration-file=scripts/nuitka-package.config.yml",
+        "--include-package=litellm",
+        "--include-package-data=litellm",
+        "--include-package=tiktoken_ext",
+        "--include-distribution-metadata=litellm",
+        "--include-distribution-metadata=tiktoken",
         # Default onefile unpacks to a unique temp dir on every launch.
         "--onefile-cache-mode=cached",
         f"--onefile-tempdir-spec={{CACHE_DIR}}/tracesurface/{__version__}",
@@ -48,6 +54,10 @@ def main() -> None:
         "--include-data-files=tracesurface/storage/sqlite/schema.sql=tracesurface/storage/sqlite/schema.sql",
         "--include-data-files=tracesurface/secrets/rules.yml=tracesurface/secrets/rules.yml",
     ]
+    if sys.platform == "darwin":
+        # Nuitka's downloaded ccache is x86_64 and launches Apple's compiler
+        # under Rosetta, which fails with arm64-only Command Line Tools.
+        command.append("--disable-cache=ccache")
     if sys.platform == "win32":
         command.append("--msvc=latest")
     command.append("tracesurface")

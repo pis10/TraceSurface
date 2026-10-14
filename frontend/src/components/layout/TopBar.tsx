@@ -42,8 +42,8 @@ export function TopBar({ stats, search, shortcutLabel, activeTab, onTabChange, o
         <Input
           value={search}
           onChange={(event) => onSearch(event.target.value)}
-          placeholder="搜索路径、响应、主机"
-          title="无前缀=URL+响应+主机；前缀 url:/body:/dom: 限定单字段"
+          placeholder={activeTab === "ai" ? "搜索疑似接口、站点、判断依据" : "搜索路径、响应、主机"}
+          title={activeTab === "ai" ? "搜索站点、接口地址和判断依据" : "无前缀=URL+响应+主机；前缀 url:/body:/dom: 限定单字段"}
           data-tracesurface-search
           className="h-9 w-full border-transparent bg-[var(--ink-0)] pl-10 pr-16 font-mono text-[12.5px] focus:border-brand"
         />

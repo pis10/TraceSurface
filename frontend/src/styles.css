@@ -503,7 +503,7 @@ select {
   }
 
   .detail-actions {
-    @apply flex shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-surface-chrome px-5 py-3.5;
+    @apply flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface-chrome px-5 py-3.5;
   }
 
   .section {

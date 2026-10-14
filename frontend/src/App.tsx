@@ -1,3 +1,4 @@
+import { AIView } from "@/components/ai/AIView";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilterBar } from "@/components/layout/FilterBar";
@@ -23,7 +24,7 @@ export default function App() {
   const [highValue, setHighValue] = useState<HighValueState>(() => readStorage(HIGH_VALUE_KEY, defaultHighValue(), sanitizeHighValue));
   const [activeMainTab, setActiveMainTab] = useState<MainTab>(() => {
     const raw = localStorage.getItem(MAIN_TAB_KEY);
-    return raw === "secrets" || raw === "replays" || raw === "surface" ? raw : "surface";
+    return raw === "secrets" || raw === "replays" || raw === "surface" || raw === "ai" ? raw : "surface";
   });
   const [stats, setStats] = useState<Stats | null>(null);
   const [targets, setTargets] = useState<TargetSummary[]>([]);
@@ -98,6 +99,7 @@ export default function App() {
   }, [reloadSummary]);
 
   const currentView = () => {
+    if (activeMainTab === "ai") return <AIView key={`ai-${dataVersion}`} filters={filters} toast={showToast} onResultLabel={setResultLabel} />;
     if (activeMainTab === "secrets") return <SecretsView key={`secrets-${dataVersion}`} filters={filters} toast={showToast} onResultLabel={setResultLabel} />;
     if (activeMainTab === "replays") {
       return (

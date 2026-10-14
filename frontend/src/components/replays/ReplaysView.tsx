@@ -1,6 +1,6 @@
 
 import { ArrowDown, ArrowUp, ChevronsUpDown, Clipboard, ExternalLink, FileText, Link2, Terminal, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
 import { BodyBlock } from "@/components/shared/BodyBlock";
 import { DetailPanel } from "@/components/shared/DetailPanel";
 import { DetailTabs } from "@/components/shared/DetailTabs";
@@ -249,14 +249,16 @@ function ReplayRow({ item, selected, delay, onClick }: { item: ReplayListItem; s
 }
 
 // 右侧详情面板：响应体、请求头、来源追溯、复制按钮
-function ReplayDetailPanel({
+export function ReplayDetailPanel({
   id,
   replay,
   tab,
   onTabChange,
   onClose,
   toast,
+  review,
 }: {
+  review?: ReactNode;
   id: number;
   replay: ReplayDetail | null;
   tab: DetailTab;
@@ -314,6 +316,7 @@ function ReplayDetailPanel({
           {replay.cdp_request_id ? <span className="min-w-0 break-all">SOURCE <b className="text-brand">浏览器真实请求重放</b></span> : null}
         </div>
       </div>
+      {review}
       <DetailTabs
         value={tab}
         items={[

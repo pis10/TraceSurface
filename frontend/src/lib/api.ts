@@ -1,3 +1,4 @@
+import type { AISettings, AICatalog, AIConnectionTest, AISite, AIBatch, AIJob, AIFinding } from "@/types/ai";
 
 
 import type {
@@ -45,7 +46,23 @@ async function remove<T>(path: string, params: Query): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function send<T>(path: string, body: unknown, method = "POST"): Promise<T> {
+  const response = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : `请求失败 (${response.status})`);
+  return data as T;
+}
+
 export const api = {
+  aiCatalog: () => request<AICatalog>("/api/ai/catalog"),
+  testAI: (settings: Omit<AISettings, "has_api_key"> & { api_key: string }) => send<AIConnectionTest>("/api/ai/test", settings),
+  aiSettings: () => request<AISettings>("/api/ai/settings"),
+  saveAISettings: (settings: Omit<AISettings, "has_api_key"> & { api_key: string }) => send<AISettings>("/api/ai/settings", settings, "PUT"),
+  aiSites: (params: Query) => request<PageResult<AISite>>("/api/ai/sites", params),
+  aiBatches: () => request<{ items: AIBatch[] }>("/api/ai/batches"),
+  startAI: (body: { scan_ids?: number[]; search?: string; target?: string; force: boolean }) => send<{ batch_id: number }>("/api/ai/batches", body),
+  aiJobs: (batch: number, params: Query) => request<PageResult<AIJob>>(`/api/ai/batches/${batch}/jobs`, params),
+  aiFindings: (params: Query) => request<PageResult<AIFinding>>("/api/ai/findings", params),
   stats: () => request<Stats>("/api/stats"),
   domains: () => request<{ items: DomainSummary[] }>("/api/domains", { limit: 9999 }),
   targets: () => request<{ items: TargetSummary[] }>("/api/targets"),

@@ -107,6 +107,15 @@ def _read_targets(file: Path | None, url: str | None) -> list[str]:
     return urls
 
 
+def _ensure_data() -> None:
+    from tracesurface.storage.sqlite.connection import IncompatibleDataError, init
+
+    try:
+        init()
+    except IncompatibleDataError as exc:
+        ui.abort(str(exc))
+
+
 def _ensure_browser() -> None:
     from tracesurface.browser import (
         chromium_is_installed,
@@ -133,9 +142,7 @@ def _ensure_browser() -> None:
 
 @app.command(short_help="扫描站点，还原 API 并发包验证")
 def scan(
-    url: str | None = typer.Argument(
-        None, help="站点 URL", rich_help_panel="目标"
-    ),
+    url: str | None = typer.Argument(None, help="站点 URL", rich_help_panel="目标"),
     file: Path | None = typer.Option(
         None,
         "--file",
@@ -229,6 +236,7 @@ def scan(
     )
 
     urls = _read_targets(file, url)
+    _ensure_data()
 
     site_concurrency = min(site_concurrency, len(urls))
     auth_state, auth_label = _resolve_auth(auth, no_auth)
@@ -341,6 +349,7 @@ def serve(
     from tracesurface.server.run import run_report_server
     from tracesurface.storage.sqlite.connection import db_path
 
+    _ensure_data()
     ui.brand("报告服务")
     ui.kv_block(
         [

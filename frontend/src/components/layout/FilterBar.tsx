@@ -82,6 +82,7 @@ export function FilterBar({
       <div className="filterbar-filters">
         <SelectPopover
           label="站点"
+          icon="globe"
           value={filters.target}
           allLabel="全部站点"
           allMeta={`${targets.length} 个 · ${totalTargetReplays}`}

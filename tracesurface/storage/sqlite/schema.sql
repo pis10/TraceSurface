@@ -124,3 +124,40 @@ CREATE TABLE IF NOT EXISTS secrets (
 CREATE INDEX IF NOT EXISTS idx_secrets_scan ON secrets(scan_id);
 CREATE INDEX IF NOT EXISTS idx_secrets_group ON secrets(rule_group);
 CREATE INDEX IF NOT EXISTS idx_secrets_rule ON secrets(rule_id);
+
+CREATE TABLE IF NOT EXISTS ai_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    settings_json TEXT NOT NULL,
+    prompt_version TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES ai_batches(id) ON DELETE CASCADE,
+    scan_id INTEGER REFERENCES scans(id) ON DELETE SET NULL,
+    target_url TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','done','failed','skipped')),
+    message TEXT NOT NULL DEFAULT '',
+    input_count INTEGER NOT NULL DEFAULT 0,
+    truncated_count INTEGER NOT NULL DEFAULT 0,
+    suspected_count INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    started_at INTEGER,
+    finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_ai_jobs_batch ON ai_jobs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_ai_jobs_scan ON ai_jobs(scan_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_active_scan ON ai_jobs(scan_id)
+    WHERE status IN ('queued','running');
+CREATE TABLE IF NOT EXISTS ai_results (
+    job_id INTEGER NOT NULL REFERENCES ai_jobs(id) ON DELETE CASCADE,
+    replay_id INTEGER NOT NULL REFERENCES verifications(id) ON DELETE CASCADE,
+    suspected INTEGER NOT NULL CHECK(suspected IN (0,1)),
+    reason TEXT NOT NULL,
+    recommendation TEXT NOT NULL,
+    truncated INTEGER NOT NULL,
+    PRIMARY KEY(job_id, replay_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_results_suspected ON ai_results(suspected, job_id);
+PRAGMA user_version = 2;

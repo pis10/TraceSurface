@@ -4,7 +4,7 @@
 
 **Dynamic browser tracing × JavaScript AST analysis. Reconstruct the complete API surface from JavaScript.**
 
-[Quick Start](#quick-start) · [Case Study](#case-study-scanning-a-login-page) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
+[Quick Start](#quick-start) · [Case Study](#case-study-scanning-a-login-page) · [AI Review](#ai-review) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
 
 <p>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white">
@@ -56,6 +56,7 @@ One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, m
 - **Evidence-driven inference**: grades each API as runtime / full-url / L1–L4 / no-url, with every result traceable to evidence.
 - **Credential-free verification**: strips Cookie, Authorization, and other credentials before replaying requests to expose authorization gaps.
 - **Local report**: discovered APIs, unauthenticated replay results, and secret matches in one place.
+- **AI Review**: review replay results by site, with suspected authorization issues, reasoning, and verification suggestions in one list.
 
 ## Quick Start
 
@@ -101,6 +102,32 @@ Then run everything with `uv run tracesurface ...`.
 
 </details>
 
+## AI Review
+
+After a scan, open **AI Review** in the local report, configure a model, select sites, and start analysis manually.
+On first use, starting analysis opens model settings; saving them takes you to site selection.
+
+- Select individual sites or every site matching the site filter, across all pages.
+- Reuse the existing **2xx + JSON** replay filter. Each site is reviewed in one independent model call.
+- Suspected issues from all sites appear in one list, with reasons, verification suggestions, and the original request/response. There are no severity tiers.
+- Unfinished scans are skipped; start analysis again after scanning finishes. Sites with no eligible responses do not call the model.
+- Jobs continue when the browser closes. Stopping the report server interrupts unfinished jobs; retry them manually.
+
+![AI Review: site selection](docs/images/ai-review-sites.jpg)
+
+Choose a provider and model, then enter an API key. Built-in providers are DeepSeek, Zhipu GLM, Kimi, MiniMax, Alibaba Cloud Model Studio, Volcengine Ark, and Xiaomi MiMo, all using native LiteLLM adapters. Model lists come from the installed LiteLLM registry; API addresses, input limits, and output budgets are set automatically. Use the custom OpenAI-compatible option for other endpoints.
+
+Models with configurable reasoning expose their supported options. **Test connection** checks the current settings and validates the response format using a synthetic sample, without scan data or saving changes. Model availability depends on your provider account; being listed does not guarantee access.
+
+Requests and responses are sent to the configured provider. The API key is stored locally in `ai-settings.json` and is never returned to the browser. Alternatively, set `TRACESURFACE_AI_KEY`; it is used when no saved key is present and is not written to the settings file. Changing providers or custom endpoints requires a matching key.
+
+Response bodies are capped at **8 KiB each** by default, with truncation explicitly marked. Stored original responses are unchanged. Results must contain exactly one valid judgment per submitted replay ID. Invalid, incomplete, or failed responses are never recorded as successful reviews. Oversized site inputs fail explicitly instead of being split or silently dropping records.
+
+Findings are suggestions for manual review. An absent finding may mean a negative judgment, an unreviewed record, a skipped site, or a failed analysis; consult task details for coverage.
+
+> [!IMPORTANT]
+> This release changes the data and configuration formats without backward compatibility or migration. Older data directories are rejected with instructions to choose a fresh `TRACESURFACE_HOME`; existing data is not rewritten. Rescanning a site still replaces its previous scan and associated AI results.
+
 ## Common Workflows
 
 | Scenario | Command |
@@ -132,6 +159,7 @@ One thing to remember when reading results: HTTP 2xx does not imply business suc
 | **APIs** | Frontend-derived API inventory, including real browser requests |
 | **Replays** | Unauthenticated replay requests, responses, status codes, and matches |
 | **Secrets** | Sensitive information found in frontend artifacts, with context |
+| **AI Review** | Suspected interfaces across sites, with evidence and original traffic |
 
 ## How It Works
 

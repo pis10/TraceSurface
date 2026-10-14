@@ -25,6 +25,8 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pyyaml>=6.0.2",
+    "litellm>=1.105.1,<2",
+    "pydantic>=2.10,<3",
 ]
 
 [project.scripts]

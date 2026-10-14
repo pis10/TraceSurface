@@ -130,6 +130,7 @@ def query_replays(
     search_field: str | None = None,
     domain: str = "",
     target: str = "",
+    scan_id: int | None = None,
     methods: list[str] | None = None,
     buckets: list[str] | None = None,
     resp_cts: list[str] | None = None,
@@ -142,6 +143,9 @@ def query_replays(
 ) -> tuple[int, list[dict[str, Any]]]:
     wheres: list[str] = ["status IS NOT NULL"]
     params: list[Any] = []
+    if scan_id is not None:
+        wheres.append("scan_id = ?")
+        params.append(scan_id)
     if domain:
         wheres.append("domain = ?")
         params.append(domain)

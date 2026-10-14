@@ -9,6 +9,10 @@ from tracesurface.config import DEFAULT_SETTINGS
 SCHEMA_FILE = Path(__file__).parent / "schema.sql"
 
 
+class IncompatibleDataError(RuntimeError):
+    """The user must choose a fresh directory; existing data is never migrated."""
+
+
 def get_home() -> Path:
     base = os.environ.get("TRACESURFACE_HOME")
     home = Path(base).expanduser() if base else Path.home() / ".tracesurface"
@@ -52,6 +56,14 @@ def init() -> None:
     get_home()
     conn = connect()
     try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        existing = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scans'"
+        ).fetchone()
+        if version != 2 and (existing or version != 0):
+            raise IncompatibleDataError(
+                "数据目录版本不兼容；本版不迁移旧数据。请用 TRACESURFACE_HOME 指定新的数据目录，旧目录会保留。"
+            )
         conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
     finally:
         conn.close()
