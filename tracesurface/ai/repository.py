@@ -6,6 +6,7 @@ from contextlib import closing
 from typing import Any
 
 from tracesurface.ai.models import AISettings, SiteResult, StartAnalysis
+from tracesurface.ai.settings import SECRET_FIELDS
 from tracesurface.storage.sqlite.connection import connect
 from tracesurface.storage.sqlite.queries import query_replays
 
@@ -62,7 +63,7 @@ def enqueue(selection: StartAnalysis, settings: AISettings) -> int:
                 "INSERT INTO ai_batches(created_at,settings_json,prompt_version) VALUES(?,?,?)",
                 (
                     int(time.time()),
-                    json.dumps(settings.model_dump(exclude={"api_key"})),
+                    json.dumps(settings.model_dump(exclude=SECRET_FIELDS)),
                     PROMPT_VERSION,
                 ),
             ).lastrowid

@@ -1,10 +1,32 @@
+export type ReasoningMode = "default" | "effort" | "budget" | "enabled" | "disabled" | "adaptive";
 export type AISettings = {
+  format_version: 2;
+  mode: "catalog" | "custom";
   provider_id: string;
-  reasoning_effort: string;
   model: string;
   api_base: string;
+  auth_mode: "key" | "environment" | "none";
   has_api_key: boolean;
+  configured_params: string[];
+  ready: boolean;
+  max_input_tokens: number | null;
+  max_output_tokens: number | null;
+  reasoning_mode: ReasoningMode;
+  reasoning_effort: string;
+  thinking_budget: number | null;
+  json_mode: boolean;
   response_limit: number;
+};
+export type AISettingsInput = Omit<AISettings, "has_api_key" | "configured_params" | "ready"> & {
+  api_key: string;
+  connection_params: Record<string, string>;
+};
+export type AIModelDetails = {
+  max_input_tokens: number | null;
+  max_output_tokens: number | null;
+  reasoning_modes: ReasoningMode[];
+  reasoning_efforts: string[];
+  json_mode: boolean;
 };
 export type AISite = {
   id: number;
@@ -47,21 +69,9 @@ export type AIFinding = {
   created_at: number;
 };
 
-export type AIModel = {
-  value: string;
-  label: string;
-  context: number;
-  max_output_tokens: number;
-  reasoning: boolean;
-  reasoning_options: string[];
-};
-export type AIProvider = {
-  id: string;
-  label: string;
-  api_base: string;
-  models: AIModel[];
-};
-export type AICatalog = { providers: AIProvider[]; source: string };
+export type AIModel = { value: string; label: string };
+export type AIProvider = { id: string; label: string; models: AIModel[] };
+export type AICatalog = { providers: AIProvider[]; source: string; connection_fields: string[] };
 export type AIConnectionTest = {
   ok: boolean;
   message: string;

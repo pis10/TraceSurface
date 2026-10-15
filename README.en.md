@@ -115,11 +115,18 @@ On first use, starting analysis opens model settings; saving them takes you to s
 
 ![AI Review: site selection](docs/images/ai-review-sites.jpg)
 
-Choose a provider and model, then enter an API key. Built-in providers are DeepSeek, Zhipu GLM, Kimi, MiniMax, Alibaba Cloud Model Studio, Volcengine Ark, and Xiaomi MiMo, all using native LiteLLM adapters. Model lists come from the installed LiteLLM registry; API addresses, input limits, and output budgets are set automatically. Use the custom OpenAI-compatible option for other endpoints.
+Model settings offer two paths:
 
-Models with configurable reasoning expose their supported options. **Test connection** checks the current settings and validates the response format using a synthetic sample, without scan data or saving changes. Model availability depends on your provider account; being listed does not guarantee access.
+- **From catalog**: providers and models come directly from the installed LiteLLM SDK, with commonly used Chinese providers listed first. Capacity and reasoning parameters follow SDK metadata; there is no separate model registry or model-name exception table. Use custom setup when deployment metadata is unavailable.
+- **Custom connection**: choose an existing LiteLLM adapter and enter the model/deployment name, endpoint, input/output token limits, reasoning mode and values, and JSON-mode support yourself. Capabilities are never inferred from the name. Custom connections also support non-OpenAI adapters.
 
-Requests and responses are sent to the configured provider. The API key is stored locally in `ai-settings.json` and is never returned to the browser. Alternatively, set `TRACESURFACE_AI_KEY`; it is used when no saved key is present and is not written to the settings file. Changing providers or custom endpoints requires a matching key.
+![Custom model settings using a local mock service](docs/images/ai-model-custom.jpg)
+
+Authentication can use an API key, environment/cloud credentials, or no authentication. Additional connection fields (such as project and region) come from the SDK. Default endpoints are resolved by LiteLLM and can be overridden. Actual model access and accepted reasoning parameters depend on the provider.
+
+**Test connection** uses the current settings and validates the response format using a synthetic sample, without scan data or saving changes. Scan traffic is sent only when the user starts analysis.
+
+Credentials are stored locally in `ai-settings.json`, never returned to the browser or included in batch records. Environment authentication uses native provider variables or `TRACESURFACE_AI_KEY`, without persisting environment keys. Changing the adapter, endpoint, or authentication method does not reuse previous credentials. Custom capacity declarations control local input budgeting; they cannot expand the server's actual context window.
 
 Response bodies are capped at **8 KiB each** by default, with truncation explicitly marked. Stored original responses are unchanged. Results must contain exactly one valid judgment per submitted replay ID. Invalid, incomplete, or failed responses are never recorded as successful reviews. Oversized site inputs fail explicitly instead of being split or silently dropping records.
 

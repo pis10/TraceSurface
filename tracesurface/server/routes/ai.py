@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 
 from tracesurface.ai import repository as repo
-from tracesurface.ai.catalog import catalog_response
+from tracesurface.ai.catalog import catalog_response, model_details
 from tracesurface.ai.models import AISettings, StartAnalysis
 from tracesurface.ai.settings import (
     load_settings,
@@ -32,6 +32,14 @@ def catalog():
     return catalog_response()
 
 
+@router.get("/catalog/model")
+def catalog_model(provider: str, model: str):
+    try:
+        return model_details(provider, model)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
 @router.get("/settings")
 def settings():
     return public_settings(load_settings())
@@ -46,8 +54,7 @@ async def put_settings(request: Request):
         raise HTTPException(422, "配置无效，请检查模型、API 地址和数值范围") from None
     try:
         value = prepare_settings(value)
-        # Check the effective key without persisting an environment-only key.
-        prepare_settings(value, require_key=True)
+        prepare_settings(value, credentials=True)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     save_settings(value)
@@ -64,7 +71,7 @@ async def connection_test(request: Request):
     except (ValidationError, ValueError):
         raise HTTPException(422, "配置无效，请检查模型和 API 地址") from None
     try:
-        value = prepare_settings(value, require_key=True)
+        value = prepare_settings(value, credentials=True)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     try:
@@ -86,15 +93,19 @@ def sites(
 @router.post("/batches")
 async def start(body: StartAnalysis, request: Request):
     config = load_settings()
-    if not config.api_key.get_secret_value():
-        raise HTTPException(400, "请先配置 AI 模型和 API Key")
+    if not public_settings(config)["ready"]:
+        raise HTTPException(400, "请先保存模型设置")
+    try:
+        config = prepare_settings(config)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
     manager = request.app.state.ai_manager
     async with manager.submission_lock:
         try:
             batch_id = await asyncio.to_thread(repo.enqueue, body, config)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
-        manager.notify(batch_id, config.api_key)
+        manager.notify(batch_id, config)
     return {"batch_id": batch_id}
 
 

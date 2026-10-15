@@ -5,8 +5,6 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic import SecretStr
-
 from tracesurface.ai import repository as repo
 from tracesurface.ai.inference import analyze_configured as analyze
 from tracesurface.ai.models import AISettings, SiteResult
@@ -81,7 +79,7 @@ def safe_error(exc: Exception) -> str:
         return "找不到所选模型，请检查模型名称及账户权限"
     if kind == "APIConnectionError":
         return "无法连接模型服务，请检查网络或 API 地址"
-    if kind == "BadRequestError":
+    if kind in {"BadRequestError", "UnsupportedParamsError"}:
         return "模型未接受当前配置，请检查所选模型及思考设置"
     if "Timeout" in kind:
         return "模型请求超时，请稍后重试"
@@ -104,7 +102,7 @@ class AnalysisManager:
     ):
         self.analyzer = analyzer
         self.workers: list[asyncio.Task[None]] = []
-        self.keys: dict[int, SecretStr] = {}
+        self.credentials: dict[int, AISettings] = {}
         self.wake = asyncio.Event()
         self.submission_lock = asyncio.Lock()
 
@@ -117,10 +115,10 @@ class AnalysisManager:
             worker.cancel()
         await asyncio.gather(*self.workers, return_exceptions=True)
         await asyncio.to_thread(repo.interrupt_pending)
-        self.keys.clear()
+        self.credentials.clear()
 
-    def notify(self, batch_id: int, key: SecretStr) -> None:
-        self.keys[batch_id] = key
+    def notify(self, batch_id: int, settings: AISettings) -> None:
+        self.credentials[batch_id] = settings.model_copy(deep=True)
         self.wake.set()
 
     async def worker(self) -> None:
@@ -146,9 +144,11 @@ class AnalysisManager:
                     )
                     continue
                 settings = AISettings.model_validate_json(job["settings_json"])
-                settings.api_key = self.keys.get(job["batch_id"], SecretStr(""))
-                if not settings.api_key.get_secret_value():
-                    raise ValueError("AI 密钥不可用，请重新发起分析")
+                credentials = self.credentials.get(job["batch_id"])
+                if credentials is None:
+                    raise ValueError("AI 配置不可用，请重新发起分析")
+                settings.api_key = credentials.api_key
+                settings.connection_params = credentials.connection_params
                 payload, truncated = await asyncio.to_thread(
                     build_payload, scan, settings
                 )

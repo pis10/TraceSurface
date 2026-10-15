@@ -48,7 +48,7 @@ export function SelectPopover({
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle
-      ? options.filter((option) => option.label.toLowerCase().includes(needle))
+      ? options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(needle))
       : options;
   }, [options, query]);
   const selectedLabel =

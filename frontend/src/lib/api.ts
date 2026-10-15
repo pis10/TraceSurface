@@ -1,4 +1,4 @@
-import type { AISettings, AICatalog, AIConnectionTest, AISite, AIBatch, AIJob, AIFinding } from "@/types/ai";
+import type { AISettings, AISettingsInput, AIModelDetails, AICatalog, AIConnectionTest, AISite, AIBatch, AIJob, AIFinding } from "@/types/ai";
 
 
 import type {
@@ -18,6 +18,14 @@ import type {
 type QueryValue = string | number | boolean | Array<string | number | boolean> | null | undefined;
 type Query = Record<string, QueryValue>;
 
+async function readResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(typeof data?.detail === "string" ? data.detail : `请求失败（${response.status}），请稍后重试`);
+  }
+  return response.json() as Promise<T>;
+}
+
 async function request<T>(path: string, params?: Query): Promise<T> {
   let url = path;
   if (params) {
@@ -31,8 +39,7 @@ async function request<T>(path: string, params?: Query): Promise<T> {
     if (raw) url = `${path}?${raw}`;
   }
   const response = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error(`API ${path} failed: ${response.status}`);
-  return response.json() as Promise<T>;
+  return readResponse<T>(response);
 }
 
 // 通用 DELETE 请求
@@ -42,22 +49,20 @@ async function remove<T>(path: string, params: Query): Promise<T> {
     if (value != null) query.set(key, String(value));
   }
   const response = await fetch(`${path}?${query.toString()}`, { method: "DELETE" });
-  if (!response.ok) throw new Error(`API ${path} failed: ${response.status}`);
-  return response.json() as Promise<T>;
+  return readResponse<T>(response);
 }
 
 async function send<T>(path: string, body: unknown, method = "POST"): Promise<T> {
   const response = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : `请求失败 (${response.status})`);
-  return data as T;
+  return readResponse<T>(response);
 }
 
 export const api = {
   aiCatalog: () => request<AICatalog>("/api/ai/catalog"),
-  testAI: (settings: Omit<AISettings, "has_api_key"> & { api_key: string }) => send<AIConnectionTest>("/api/ai/test", settings),
+  aiModelDetails: (provider: string, model: string) => request<AIModelDetails>("/api/ai/catalog/model", { provider, model }),
+  testAI: (settings: AISettingsInput) => send<AIConnectionTest>("/api/ai/test", settings),
   aiSettings: () => request<AISettings>("/api/ai/settings"),
-  saveAISettings: (settings: Omit<AISettings, "has_api_key"> & { api_key: string }) => send<AISettings>("/api/ai/settings", settings, "PUT"),
+  saveAISettings: (settings: AISettingsInput) => send<AISettings>("/api/ai/settings", settings, "PUT"),
   aiSites: (params: Query) => request<PageResult<AISite>>("/api/ai/sites", params),
   aiBatches: () => request<{ items: AIBatch[] }>("/api/ai/batches"),
   startAI: (body: { scan_ids?: number[]; search?: string; target?: string; force: boolean }) => send<{ batch_id: number }>("/api/ai/batches", body),

@@ -8,17 +8,22 @@ import sys
 import tempfile
 import threading
 import unittest
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
-from tracesurface.ai.catalog import model_catalog
-from tracesurface.ai.inference import analyze_configured, request_options
-from tracesurface.ai.models import AISettings
+from tracesurface.ai.catalog import catalog_response, model_catalog, model_details
+from tracesurface.ai.inference import (
+    analyze_configured,
+    request_options,
+    test_connection,
+)
+from tracesurface.ai.models import AISettings, StartAnalysis
 from tracesurface.ai.runtime import get_litellm
 from tracesurface.ai.settings import (
     load_settings,
@@ -26,7 +31,19 @@ from tracesurface.ai.settings import (
     public_settings,
     save_settings,
 )
-from tracesurface.storage.sqlite.connection import init
+from tracesurface.storage.sqlite.connection import connect, init
+
+
+def custom(**updates):
+    return AISettings(
+        mode="custom",
+        provider_id="openai",
+        model="org/private-model",
+        max_input_tokens=32000,
+        max_output_tokens=8192,
+        auth_mode="none",
+        **updates,
+    )
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -42,56 +59,264 @@ class ConfigurationTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def test_directory_covers_all_native_chat_models_without_alias_duplicates(self):
+    def test_catalog_uses_sdk_without_authentication_or_endpoint_discovery(self):
         llm = get_litellm()
-        for provider in model_catalog():
-            native = provider["native"]
-            expected = {
-                name.removeprefix(native + "/")
-                for name, info in llm.model_cost.items()
-                if info.get("litellm_provider") == native and info.get("mode") == "chat"
+        model_catalog.cache_clear()
+        with patch.object(
+            llm, "get_llm_provider", side_effect=AssertionError("must not authenticate")
+        ):
+            catalog = model_catalog()
+        ids = {p["id"] for p in catalog}
+        self.assertTrue(
+            {
+                "deepseek",
+                "anthropic",
+                "azure",
+                "bedrock",
+                "ollama",
+                "openrouter",
+                "gemini",
             }
-            actual = [m["value"] for m in provider["models"]]
-            self.assertEqual(set(actual), expected)
-            self.assertEqual(len(actual), len(set(actual)))
-        self.assertTrue(all(p["id"] == p["native"] for p in model_catalog()))
-
-    def test_preset_uses_native_zai_and_fixed_endpoint(self):
-        config = AISettings(
-            provider_id="zai",
-            model="glm-5.3",
-            api_base="https://wrong.example",
+            <= ids
         )
-        prepared = prepare_settings(config)
-        options, capacity = request_options(prepared, 84)
-        self.assertEqual(options["model"], "zai/glm-5.3")
-        self.assertEqual(options["api_base"], "https://open.bigmodel.cn/api/paas/v4")
-        self.assertEqual(options["max_tokens"] + capacity, 1000000)
-        self.assertGreater(options["max_tokens"], 1024)
+        self.assertGreater(len(ids), 50)
+        self.assertNotIn("custom", ids)
+        expected = {p: set() for p in ids}
+        for route, info in llm.model_cost.items():
+            if info.get("mode") != "chat":
+                continue
+            prefix, separator, name = route.partition("/")
+            native = (
+                prefix if separator and prefix in ids else info.get("litellm_provider")
+            )
+            if native in ids:
+                expected[native].add(name if separator and native == prefix else route)
+        for provider in catalog:
+            self.assertEqual(
+                {m["value"] for m in provider["models"]}, expected[provider["id"]]
+            )
 
-    def test_old_settings_are_not_migrated_or_accepted(self):
-        for field, value in {
-            "protocol": "chat",
-            "max_input_tokens": 128000,
-            "max_output_tokens": 8192,
-            "timeout_seconds": 300,
-            "output_mode": "auto",
-        }.items():
-            with self.subTest(field=field), self.assertRaises(ValidationError):
-                AISettings.model_validate({field: value})
+        model_details.cache_clear()
+        with patch.object(
+            llm, "get_model_info", side_effect=AssertionError("no remote discovery")
+        ):
+            for provider in catalog:
+                if provider["models"]:
+                    model_details(provider["id"], provider["models"][0]["value"])
 
-    def test_invalid_settings_error_is_readable_and_keeps_the_file(self):
+    def test_native_uses_sdk_capacity_and_default_endpoint(self):
+        value = AISettings(
+            api_key=SecretStr("test-key"), max_input_tokens=1024, max_output_tokens=256
+        )
+        options, capacity = request_options(value, 84)
+        self.assertEqual(options["model"], "deepseek-flash")
+        self.assertEqual(options["custom_llm_provider"], "deepseek")
+        self.assertNotIn("api_base", options)
+        self.assertEqual(
+            options["max_tokens"] + capacity,
+            model_details("deepseek", "deepseek-flash")["max_input_tokens"],
+        )
+        self.assertNotIn("tools", options)
+        self.assertFalse(options["drop_params"])
+
+    def test_custom_never_infers_capabilities_even_for_known_model_name(self):
+        value = custom().model_copy(
+            update={
+                "model": "gpt-4o",
+                "reasoning_mode": "effort",
+                "reasoning_effort": "high",
+                "json_mode": True,
+            }
+        )
+        with patch(
+            "tracesurface.ai.catalog.model_details",
+            side_effect=AssertionError("no lookup"),
+        ):
+            options, capacity = request_options(value)
+        self.assertEqual(options["model"], "gpt-4o")
+        self.assertEqual(options["extra_body"]["reasoning_effort"], "high")
+        self.assertEqual(options["response_format"], {"type": "json_object"})
+        self.assertEqual(capacity + options["max_tokens"], 32000)
+        self.assertEqual(value.max_input_tokens, 32000)
+        with self.assertRaisesRegex(ValueError, "填写"):
+            prepare_settings(value.model_copy(update={"max_input_tokens": None}))
+
+    def test_custom_reasoning_modes_are_forwarded_without_model_name_rules(self):
+        for mode, expected in [
+            ("enabled", {"type": "enabled"}),
+            ("disabled", {"type": "disabled"}),
+            ("adaptive", {"type": "adaptive"}),
+            ("budget", {"type": "enabled", "budget_tokens": 2048}),
+        ]:
+            with self.subTest(mode=mode):
+                value = custom(
+                    reasoning_mode=mode,
+                    thinking_budget=2048 if mode == "budget" else None,
+                )
+                options, _ = request_options(value)
+                self.assertEqual(options["extra_body"]["thinking"], expected)
+                self.assertNotIn("reasoning_effort", options)
+        with self.assertRaisesRegex(ValueError, "思考预算"):
+            prepare_settings(custom(reasoning_mode="budget", thinking_budget=8192))
+
+    def test_catalog_does_not_offer_controls_collapsed_by_sdk(self):
+        details = model_details("deepseek", "deepseek-flash")
+        self.assertIn("enabled", details["reasoning_modes"])
+        self.assertIn("disabled", details["reasoning_modes"])
+        self.assertNotIn("effort", details["reasoning_modes"])
+        self.assertNotIn("budget", details["reasoning_modes"])
+
+    def test_invalid_connection_values_are_rejected_without_echoing_secrets(self):
+        for value in ('{"private_key":"private-key"', '["private-key"]'):
+            settings = custom().model_copy(
+                update={"connection_params": {"vertex_credentials": SecretStr(value)}}
+            )
+            with self.assertRaisesRegex(ValueError, "连接参数格式无效") as error:
+                prepare_settings(settings)
+            self.assertNotIn("private-key", str(error.exception))
+
+    def test_custom_declarations_are_isolated_between_requests(self):
+        first, cap1 = request_options(custom())
+        second, cap2 = request_options(
+            custom().model_copy(update={"max_input_tokens": 64000})
+        )
+        self.assertEqual(cap2 - cap1, 32000)
+        self.assertEqual(first["max_tokens"], second["max_tokens"])
+
+    def test_cloud_connection_fields_come_from_sdk_and_are_redacted(self):
+        from tracesurface.ai import repository as repo
+
+        fields = catalog_response()["connection_fields"]
+        self.assertIn("vertex_project", fields)
+        self.assertIn("aws_session_token", fields)
+        value = custom().model_copy(
+            update={
+                "provider_id": "vertex_ai",
+                "auth_mode": "environment",
+                "connection_params": {
+                    "vertex_project": SecretStr("private-project"),
+                    "vertex_credentials": SecretStr('{"private_key":"private-key"}'),
+                },
+            }
+        )
+        save_settings(value)
+        view = public_settings(load_settings())
+        self.assertEqual(
+            set(view["configured_params"]), {"vertex_project", "vertex_credentials"}
+        )
+        self.assertNotIn("private-project", json.dumps(view))
+        self.assertNotIn("private-key", json.dumps(view))
+        options, _ = request_options(value)
+        self.assertEqual(options["vertex_credentials"]["private_key"], "private-key")
+        with closing(connect()) as conn:
+            scan = conn.execute(
+                "INSERT INTO scans(target_url,domain,started_at,finished_at,status) VALUES('https://test.invalid','test.invalid',1,2,'done')"
+            ).lastrowid
+        repo.enqueue(StartAnalysis(scan_ids=[scan]), value)
+        with closing(connect()) as conn:
+            snapshot = conn.execute("SELECT settings_json FROM ai_batches").fetchone()[
+                0
+            ]
+        self.assertNotIn("private-key", snapshot)
+        self.assertNotIn("private-project", snapshot)
+        with self.assertRaisesRegex(ValueError, "连接参数"):
+            prepare_settings(
+                custom().model_copy(
+                    update={"connection_params": {"tools": SecretStr("[]")}}
+                )
+            )
+
+    def test_credentials_stay_in_scope_and_can_be_removed(self):
+        value = custom().model_copy(
+            update={
+                "auth_mode": "key",
+                "api_key": SecretStr("test-secret"),
+                "api_base": "https://model.test/v1",
+            }
+        )
+        save_settings(value)
+        empty = value.model_copy(update={"api_key": SecretStr("")})
+        self.assertEqual(
+            prepare_settings(empty, credentials=True).api_key.get_secret_value(),
+            "test-secret",
+        )
+        for updates in [
+            {"provider_id": "anthropic"},
+            {"api_base": "https://other.test/v1"},
+        ]:
+            with self.assertRaisesRegex(ValueError, "API Key"):
+                prepare_settings(empty.model_copy(update=updates), credentials=True)
+        save_settings(empty.model_copy(update={"auth_mode": "none"}))
+        self.assertFalse(load_settings().api_key.get_secret_value())
+        if os.name != "nt":
+            self.assertEqual(
+                Path(self.tmp.name, "ai-settings.json").stat().st_mode & 0o777, 0o600
+            )
+
+    def test_environment_credentials_are_not_saved(self):
+        value = custom().model_copy(update={"auth_mode": "environment"})
+        with patch.dict(os.environ, {"TRACESURFACE_AI_KEY": "environment-secret"}):
+            options, _ = request_options(value)
+            self.assertEqual(options["api_key"], "environment-secret")
+            save_settings(value)
+            self.assertNotIn(
+                "environment-secret",
+                Path(self.tmp.name, "ai-settings.json").read_text(),
+            )
+
+    def test_invalid_or_old_settings_are_not_migrated(self):
         from tracesurface.server.app import create_app
 
         path = Path(self.tmp.name, "ai-settings.json")
-        original = '{"api_key":"local-test-secret","output_mode":"auto"}'
-        path.write_text(original)
+        for original in [
+            '{"api_key":"old-secret"}',
+            '{"format_version":1,"api_key":"old-secret"}',
+            "broken",
+        ]:
+            path.write_text(original)
+            with TestClient(create_app()) as client:
+                response = client.get("/api/ai/settings")
+            self.assertEqual(response.status_code, 409)
+            self.assertIn("重新配置", response.json()["detail"])
+            self.assertNotIn("old-secret", response.text)
+            self.assertEqual(path.read_text(), original)
+
+    def test_connection_probe_does_not_save_or_expose_errors(self):
+        from tracesurface.server.app import create_app
+
+        body = custom().model_dump(mode="json")
+        body["api_key"] = ""
         with TestClient(create_app()) as client:
-            response = client.get("/api/ai/settings")
-        self.assertEqual(response.status_code, 409)
-        self.assertIn("重新配置", response.json()["detail"])
-        self.assertNotIn("local-test-secret", response.text)
-        self.assertEqual(path.read_text(), original)
+            with patch(
+                "tracesurface.ai.inference.test_connection",
+                new=AsyncMock(side_effect=RuntimeError("secret response")),
+            ):
+                response = client.post("/api/ai/test", json=body)
+            self.assertFalse(response.json()["ok"])
+            self.assertNotIn("secret response", response.text)
+            self.assertFalse(Path(self.tmp.name, "ai-settings.json").exists())
+            self.assertEqual(
+                client.post(
+                    "/api/ai/test",
+                    json=body,
+                    headers={"Origin": "https://foreign.example"},
+                ).status_code,
+                403,
+            )
+
+    def test_no_key_local_service_can_save_and_start(self):
+        from tracesurface.server.app import create_app
+
+        body = custom().model_dump(mode="json")
+        body["api_key"] = ""
+        with TestClient(create_app()) as client:
+            self.assertFalse(client.get("/api/ai/settings").json()["ready"])
+            response = client.put("/api/ai/settings", json=body)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["ready"])
+            # It reaches site selection, not an artificial API-key requirement.
+            response = client.post("/api/ai/batches", json={"scan_ids": []})
+            self.assertIn("没有选中站点", response.text)
 
     def test_cold_server_can_load_catalog_while_other_requests_are_logged(self):
         program = """
@@ -135,150 +360,43 @@ assert not thread.is_alive(), "server did not stop"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("Exception ignored", result.stderr)
 
-    def test_reasoning_strength_is_not_silently_dropped(self):
-        for ident, name in [("deepseek", "deepseek-flash"), ("zai", "glm-5.3")]:
-            options, _ = request_options(
-                AISettings(provider_id=ident, model=name, reasoning_effort="max")
-            )
-            self.assertEqual(options["extra_body"]["reasoning_effort"], "max")
-        with self.assertRaises(ValueError):
-            prepare_settings(
-                AISettings(provider_id="zai", model="glm-5.3", reasoning_effort="off")
-            )
-
-    def test_key_is_reused_only_for_same_endpoint_and_environment_not_persisted(self):
-        save_settings(AISettings(api_key=SecretStr("local-test-secret")))
-        saved = AISettings(
-            **{
-                k: v
-                for k, v in public_settings(load_settings()).items()
-                if k != "has_api_key"
-            }
-        )
-        self.assertEqual(
-            prepare_settings(saved, require_key=True).api_key.get_secret_value(),
-            "local-test-secret",
-        )
-        save_settings(saved)
-        self.assertEqual(
-            load_settings().api_key.get_secret_value(), "local-test-secret"
-        )
-        with self.assertRaises(ValueError):
-            prepare_settings(
-                AISettings(provider_id="zai", model="glm-5.3"),
-                require_key=True,
-            )
-        Path(self.tmp.name, "ai-settings.json").unlink()
-        with patch.dict(os.environ, {"TRACESURFACE_AI_KEY": "env-test-secret"}):
-            resolved = prepare_settings(saved, require_key=True)
-            self.assertEqual(resolved.api_key.get_secret_value(), "env-test-secret")
-            save_settings(saved)
-            self.assertNotIn(
-                "env-test-secret", Path(self.tmp.name, "ai-settings.json").read_text()
-            )
-
-    def test_connection_probe_does_not_save_or_return_provider_error_contents(self):
-        from tracesurface.server.app import create_app
-
-        with TestClient(create_app()) as client:
-            body = {
-                "provider_id": "deepseek",
-                "model": "deepseek-flash",
-                "api_key": "local-test-secret",
-            }
-            with patch(
-                "tracesurface.ai.inference.test_connection",
-                new=AsyncMock(
-                    side_effect=RuntimeError("local-test-secret sensitive response")
-                ),
-            ):
-                response = client.post("/api/ai/test", json=body)
-            self.assertFalse(response.json()["ok"])
-            self.assertNotIn("local-test-secret", response.text)
-            self.assertNotIn("sensitive response", response.text)
-            self.assertFalse(Path(self.tmp.name, "ai-settings.json").exists())
-            self.assertEqual(
-                client.post(
-                    "/api/ai/test",
-                    json=body,
-                    headers={"Origin": "https://foreign.example"},
-                ).status_code,
-                403,
-            )
-
-    def test_saving_cannot_reuse_a_key_for_another_provider(self):
-        from tracesurface.server.app import create_app
-
-        with (
-            patch.dict(os.environ, {"TRACESURFACE_AI_KEY": "env-test-secret"}),
-            TestClient(create_app()) as client,
-        ):
-            response = client.put(
-                "/api/ai/settings",
-                json={"provider_id": "deepseek", "model": "deepseek-flash"},
-            )
-            self.assertEqual(response.status_code, 200)
-            path = Path(self.tmp.name, "ai-settings.json")
-            before = path.read_text()
-            self.assertNotIn("env-test-secret", before)
-            response = client.put(
-                "/api/ai/settings", json={"provider_id": "zai", "model": "glm-5.3"}
-            )
-            self.assertEqual(response.status_code, 422)
-            self.assertEqual(path.read_text(), before)
-
-    def test_unsupported_reasoning_is_rejected_before_call(self):
-        with self.assertRaises(ValueError):
-            request_options(
-                AISettings(
-                    provider_id="minimax", model="MiniMax-M2.5", reasoning_effort="high"
-                )
-            )
-
 
 class InferenceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_probe_validates_same_result_schema_and_ids(self):
-        from tracesurface.ai.inference import test_connection
-
-        llm = get_litellm()
-        response = SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    finish_reason="stop",
-                    message=SimpleNamespace(content='{"results":[]}'),
-                )
-            ],
-            usage=None,
-        )
-        config = AISettings(
-            provider_id="deepseek",
-            model="deepseek-flash",
-            api_key=SecretStr("placeholder"),
-        )
-        with patch.object(
-            llm, "acompletion", new=AsyncMock(return_value=response)
-        ) as call:
-            with self.assertRaisesRegex(ValueError, "遗漏"):
-                await test_connection(config)
-            payload = json.loads(call.call_args.kwargs["messages"][1]["content"])
-            self.assertEqual(payload["records"][0]["replay_id"], 1)
-            self.assertIn("connection-test.invalid", str(payload))
-            self.assertNotIn("tools", call.call_args.kwargs)
-
     async def test_input_budget_is_enforced_before_request(self):
-        llm = get_litellm()
+        llm = SimpleNamespace(
+            token_counter=Mock(return_value=50000), acompletion=AsyncMock()
+        )
         with (
-            patch.object(llm, "token_counter", return_value=2_000_000),
-            patch.object(llm, "acompletion", new=AsyncMock()) as call,
+            patch("tracesurface.ai.inference.get_litellm", return_value=llm),
+            self.assertRaisesRegex(ValueError, "容量"),
         ):
-            with self.assertRaisesRegex(ValueError, "容量"):
-                await analyze_configured(
-                    {"records": []},
-                    AISettings(provider_id="deepseek", model="deepseek-flash"),
-                )
-            call.assert_not_awaited()
+            await analyze_configured({"records": []}, custom())
+        llm.acompletion.assert_not_called()
 
-    async def test_native_sdk_wire_payload_preserves_reasoning_and_json(self):
+    async def test_connection_test_checks_coverage_and_result_schema(self):
+        llm = SimpleNamespace(
+            token_counter=Mock(return_value=100),
+            acompletion=AsyncMock(
+                return_value=SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            message=SimpleNamespace(content='{"results":[]}'),
+                        )
+                    ],
+                    usage=None,
+                )
+            ),
+        )
+        with (
+            patch("tracesurface.ai.inference.get_litellm", return_value=llm),
+            self.assertRaisesRegex(ValueError, "遗漏"),
+        ):
+            await test_connection(custom())
+        self.assertEqual(llm.acompletion.await_count, 1)
+        self.assertNotIn("tools", llm.acompletion.call_args.kwargs)
+
+    async def test_actual_sdk_custom_and_native_wire_payloads(self):
         received = []
 
         class Handler(BaseHTTPRequestHandler):
@@ -286,62 +404,85 @@ class InferenceTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
             def do_POST(self):
-                received.append(
-                    json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                )
-                body = json.dumps(
-                    {
+                data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                received.append((self.path, data))
+                result = '{"results":[{"replay_id":1,"suspected":false,"reason":"requires login","recommendation":""}]}'
+                if self.path.endswith("/messages"):
+                    body = {
+                        "id": "test",
+                        "type": "message",
+                        "role": "assistant",
+                        "model": data["model"],
+                        "content": [{"type": "text", "text": result}],
+                        "stop_reason": "end_turn",
+                        "usage": {"input_tokens": 10, "output_tokens": 20},
+                    }
+                else:
+                    body = {
                         "id": "test",
                         "object": "chat.completion",
                         "created": 1,
-                        "model": "test",
+                        "model": data["model"],
                         "choices": [
                             {
                                 "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": '{"results":[]}',
-                                },
+                                "message": {"role": "assistant", "content": result},
                                 "finish_reason": "stop",
                             }
                         ],
                         "usage": {
-                            "prompt_tokens": 1,
-                            "completion_tokens": 1,
-                            "total_tokens": 2,
+                            "prompt_tokens": 10,
+                            "completion_tokens": 20,
+                            "total_tokens": 30,
                         },
                     }
-                ).encode()
+                raw = json.dumps(body).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
-                self.wfile.write(body)
+                self.wfile.write(raw)
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
         try:
-            for provider, name in [
-                ("deepseek", "deepseek-flash"),
-                ("zai", "glm-5.3"),
-            ]:
-                config = AISettings(
-                    provider_id=provider,
-                    model=name,
-                    reasoning_effort="max",
-                    api_key=SecretStr("placeholder"),
-                )
-                options, _ = request_options(config)
-                options["api_base"] = f"http://127.0.0.1:{server.server_port}/v1"
-                await get_litellm().acompletion(
-                    messages=[{"role": "user", "content": "Return a JSON object."}],
-                    **options,
-                )
-                self.assertEqual(received[-1]["reasoning_effort"], "max")
-                self.assertEqual(received[-1]["model"], name)
-            self.assertEqual(received[0]["response_format"], {"type": "json_object"})
-            self.assertEqual(received[0]["thinking"], {"type": "enabled"})
+            config = custom(
+                api_base=base + "/v1",
+                reasoning_mode="effort",
+                reasoning_effort="high",
+                json_mode=True,
+            )
+            self.assertTrue((await test_connection(config))["ok"])
+            self.assertEqual(received[-1][1]["model"], "org/private-model")
+            self.assertEqual(received[-1][1]["reasoning_effort"], "high")
+            self.assertEqual(
+                received[-1][1]["response_format"], {"type": "json_object"}
+            )
+            # Unknown OpenAI-compatible models retain explicitly declared thinking.
+            budget = config.model_copy(
+                update={"reasoning_mode": "budget", "thinking_budget": 2048}
+            )
+            self.assertTrue((await test_connection(budget))["ok"])
+            self.assertEqual(
+                received[-1][1]["thinking"], {"type": "enabled", "budget_tokens": 2048}
+            )
+            native = AISettings(api_base=base + "/v1", api_key=SecretStr("placeholder"))
+            self.assertTrue((await test_connection(native))["ok"])
+            self.assertEqual(received[-1][1]["model"], "deepseek-flash")
+            # A custom endpoint also supports an existing non-OpenAI adapter.
+            anthropic = custom(
+                api_base=base, reasoning_mode="budget", thinking_budget=2048
+            ).model_copy(
+                update={"provider_id": "anthropic", "model": "claude-3-7-sonnet-latest"}
+            )
+            self.assertTrue((await test_connection(anthropic))["ok"])
+            self.assertEqual(received[-1][0], "/v1/messages")
+            self.assertEqual(
+                received[-1][1]["thinking"], {"type": "enabled", "budget_tokens": 2048}
+            )
+            self.assertTrue(all("tools" not in body for _, body in received))
         finally:
             await asyncio.to_thread(server.shutdown)
             server.server_close()

@@ -257,23 +257,6 @@ class DataTests(DatabaseCase):
                 c.execute("SELECT settings_json FROM ai_batches").fetchone()[0],
             )
 
-    def test_catalog_presets_use_registered_model_limits(self):
-        from tracesurface.ai.catalog import model_catalog
-        from tracesurface.ai.runtime import get_litellm
-
-        catalog = model_catalog()
-        self.assertEqual(len({p["id"] for p in catalog}), len(catalog))
-        llm = get_litellm()
-        for provider in catalog:
-            self.assertTrue(provider["models"])
-            for model in provider["models"]:
-                info = llm.get_model_info(f"{provider['native']}/{model['value']}")
-                self.assertLessEqual(
-                    model["max_output_tokens"], info["max_output_tokens"]
-                )
-                self.assertGreaterEqual(model["max_output_tokens"], 1024)
-        self.assertNotIn("api_key", json.dumps(catalog))
-
     def test_api_settings_validation_does_not_echo_key(self):
         from tracesurface.server.app import create_app
 
@@ -354,7 +337,7 @@ class WorkerTests(DatabaseCase):
             batch = repo.enqueue(
                 StartAnalysis(scan_ids=[ok, fail, empty_scan]), self.config()
             )
-            manager.notify(batch, self.config().api_key)
+            manager.notify(batch, self.config())
             try:
                 for _ in range(200):
                     jobs = repo.jobs(batch, 0, 50)["items"]
@@ -422,12 +405,12 @@ class ModelCallTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(kwargs["messages"]), 2)
             llm.token_counter.return_value = 2000000
             with self.assertRaisesRegex(ValueError, "超过当前模型可用容量"):
-                await analyze(payload, AISettings())
+                await analyze(payload, AISettings(api_key=SecretStr("test")))
             self.assertEqual(llm.acompletion.await_count, 1)
             llm.token_counter.return_value = 20
             response.choices[0].finish_reason = "length"
             with self.assertRaisesRegex(ValueError, "未完整"):
-                await analyze(payload, AISettings())
+                await analyze(payload, AISettings(api_key=SecretStr("test")))
 
     async def test_custom_model_preserves_model_identifier(self):
         from types import SimpleNamespace
@@ -458,14 +441,18 @@ class ModelCallTests(unittest.IsolatedAsyncioTestCase):
             await analyze(
                 {"records": []},
                 AISettings(
-                    provider_id="custom",
+                    mode="custom",
+                    provider_id="openai",
+                    max_input_tokens=32000,
+                    max_output_tokens=4096,
                     model="team/custom-local-model",
+                    auth_mode="none",
                     api_base="http://localhost:8000",
                 ),
             )
         self.assertEqual(llm.acompletion.await_count, 1)
         self.assertEqual(
-            llm.acompletion.call_args.kwargs["model"], "openai/team/custom-local-model"
+            llm.acompletion.call_args.kwargs["model"], "team/custom-local-model"
         )
 
 

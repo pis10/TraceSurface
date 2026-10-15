@@ -160,4 +160,4 @@ CREATE TABLE IF NOT EXISTS ai_results (
     PRIMARY KEY(job_id, replay_id)
 );
 CREATE INDEX IF NOT EXISTS idx_ai_results_suspected ON ai_results(suspected, job_id);
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;

@@ -60,7 +60,7 @@ def init() -> None:
         existing = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scans'"
         ).fetchone()
-        if version != 2 and (existing or version != 0):
+        if version != 3 and (existing or version != 0):
             raise IncompatibleDataError(
                 "数据目录版本不兼容；本版不迁移旧数据。请用 TRACESURFACE_HOME 指定新的数据目录，旧目录会保留。"
             )

@@ -4,73 +4,83 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from typing import Any
 
-from tracesurface.ai.catalog import find_model
 from tracesurface.ai.models import AISettings, SiteResult, validate_result
 from tracesurface.ai.prompt import SYSTEM_PROMPT
 from tracesurface.ai.runtime import get_litellm
+from tracesurface.ai.settings import connection_values, prepare_settings
 
 
 def request_options(
     settings: AISettings, record_count: int = 1
 ) -> tuple[dict[str, Any], int]:
-    llm = get_litellm()
-    item: dict[str, Any] = {}
-    if settings.provider_id == "custom":
-        route = f"openai/{settings.model}"
-        base = settings.api_base
-        native = route.split("/")[0]
-        try:
-            info = llm.get_model_info(route)
-        except (ValueError, llm.ModelNotMappedError):
-            info = {}
-        context = info.get("max_input_tokens") or 128000
-        output_limit = info.get("max_output_tokens") or 16384
-        if settings.reasoning_effort != "auto":
-            raise ValueError("自定义服务使用模型默认思考设置")
-    else:
-        provider, item = find_model(settings.provider_id, settings.model)
-        if settings.reasoning_effort not in item["reasoning_options"]:
-            raise ValueError("当前模型不支持所选思考设置")
-        native = provider["native"]
-        route, base = f"{native}/{settings.model}", provider["api_base"]
-        context, output_limit = item["context"], item["max_output_tokens"]
-    reserve = (
-        8192
-        if item.get("reasoning") and settings.reasoning_effort not in {"off", "none"}
-        else 0
+    settings = prepare_settings(settings)
+    # Custom capacities are user declarations; never infer from the model name.
+    context = int(settings.max_input_tokens or 0)
+    output_limit = int(settings.max_output_tokens or 0)
+    reserve = settings.thinking_budget or (
+        8192 if settings.reasoning_mode != "default" else 0
     )
-    output = min(int(output_limit), 131072, max(4096, record_count * 256 + reserve))
+    output = min(output_limit, context - 512, max(4096, record_count * 256 + reserve))
+    if (
+        settings.reasoning_mode == "budget"
+        and (settings.thinking_budget or 0) >= output
+    ):
+        raise ValueError("AI 思考预算占满输出空间，请增大容量或减少思考预算")
     options: dict[str, Any] = {
-        "model": route,
-        "api_key": settings.api_key.get_secret_value(),
-        "api_base": base or None,
+        "model": settings.model,
+        "custom_llm_provider": settings.provider_id,
         "max_tokens": output,
         "timeout": 300,
         "num_retries": 0,
         "stream": False,
+        "drop_params": False,
     }
-    effort = settings.reasoning_effort
-    if effort in {"on", "off"}:
-        thinking = {"type": "enabled" if effort == "on" else "disabled"}
-        if native == "moonshot":
-            options["extra_body"] = {"thinking": thinking}
-        else:
-            options["thinking"] = thinking
-    elif effort != "auto":
-        if native in {"deepseek", "zai"}:
-            # The installed native adapters omit these strengths. Preserve the
-            # official field through LiteLLM's documented extra_body mechanism.
-            options["extra_body"] = {"reasoning_effort": effort}
-            if native == "deepseek":
-                options["thinking"] = {"type": "enabled"}
-        else:
-            options["reasoning_effort"] = effort
-    if item.get("supports_json"):
+    if settings.auth_mode == "key":
+        if not settings.api_key.get_secret_value():
+            raise ValueError("AI 密钥不可用，请重新配置")
+        options["api_key"] = settings.api_key.get_secret_value()
+    elif settings.auth_mode == "none":
+        # Some clients require a non-empty string even for unauthenticated local services.
+        options["api_key"] = "not-required"
+    elif os.environ.get("TRACESURFACE_AI_KEY"):
+        options["api_key"] = os.environ["TRACESURFACE_AI_KEY"]
+    if settings.api_base:
+        options["api_base"] = settings.api_base
+    options.update(connection_values(settings))
+    mode = settings.reasoning_mode
+    if mode == "effort":
+        options["reasoning_effort"] = settings.reasoning_effort
+    elif mode == "budget":
+        options["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": settings.thinking_budget,
+        }
+    elif mode != "default":
+        options["thinking"] = {"type": mode}
+    if settings.mode == "custom":
+        from litellm.llms.openai.chat.gpt_transformation import OpenAIGPTConfig
+
+        from tracesurface.ai.catalog import chat_config
+
+        if isinstance(
+            chat_config(settings.provider_id, settings.model), OpenAIGPTConfig
+        ):
+            # User-declared extensions on an OpenAI-compatible wire must survive
+            # even when the SDK has no capability entry for this model name.
+            extra = {
+                key: options.pop(key)
+                for key in ("thinking", "reasoning_effort")
+                if key in options
+            }
+            if extra:
+                options["extra_body"] = extra
+    if settings.json_mode:
         options["response_format"] = {"type": "json_object"}
-    return options, max(0, int(context) - output)
+    return options, max(0, context - output)
 
 
 async def analyze_configured(
@@ -90,7 +100,9 @@ async def analyze_configured(
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
     tokens = await asyncio.to_thread(
-        llm.token_counter, model=options["model"], messages=messages
+        llm.token_counter,
+        model=f"{settings.provider_id}/{settings.model}",
+        messages=messages,
     )
     if tokens > input_limit:
         raise ValueError(

@@ -27,7 +27,7 @@ type ReplaysViewProps = {
   toast: (message: string) => void;
 };
 
-type DetailTab = "response" | "request" | "ast";
+export type DetailTab = "review" | "response" | "request" | "ast";
 
 export function ReplaysView({ filters, highValue, sort, onSortChange, onResultLabel, toast }: ReplaysViewProps) {
   const [page, setPage] = useState(1);
@@ -267,12 +267,18 @@ export function ReplayDetailPanel({
   toast: (message: string) => void;
 }) {
   const bodySectionRef = useRef<HTMLElement | null>(null);
+  const bodyContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!replay || (tab !== "response" && tab !== "request")) return;
-    window.requestAnimationFrame(() => {
-      bodySectionRef.current?.scrollIntoView({ block: "start" });
+    const frame = window.requestAnimationFrame(() => {
+      const container = bodyContainerRef.current;
+      const section = bodySectionRef.current;
+      if (container && section) {
+        container.scrollTop += section.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      }
     });
+    return () => window.cancelAnimationFrame(frame);
   }, [replay?.id, tab]);
 
   if (!replay) {
@@ -316,17 +322,17 @@ export function ReplayDetailPanel({
           {replay.cdp_request_id ? <span className="min-w-0 break-all">SOURCE <b className="text-brand">浏览器真实请求重放</b></span> : null}
         </div>
       </div>
-      {review}
       <DetailTabs
         value={tab}
         items={[
+          ...(review ? [{ value: "review" as const, label: "Review" }] : []),
           { value: "response", label: "Response" },
           { value: "request", label: "Request" },
           { value: "ast", label: "Provenance" },
         ]}
         onChange={onTabChange}
       />
-      <div className="detail-body">{tab === "response" ? <ReplayResponse replay={replay} headers={respHeaders} bucket={bucket} bodyRef={bodySectionRef} /> : tab === "request" ? <ReplayRequest replay={replay} headers={reqHeaders} bodyRef={bodySectionRef} /> : <ReplayProvenance replay={replay} />}</div>
+      <div className="detail-body" ref={bodyContainerRef}>{tab === "review" ? review : tab === "response" ? <ReplayResponse replay={replay} headers={respHeaders} bucket={bucket} bodyRef={bodySectionRef} /> : tab === "request" ? <ReplayRequest replay={replay} headers={reqHeaders} bodyRef={bodySectionRef} /> : <ReplayProvenance replay={replay} />}</div>
       <div className="detail-actions">
         <Button variant="default" onClick={() => copy(requestToCurl(req))}><Terminal className="h-3.5 w-3.5" />Copy as cURL</Button>
         <Button variant="subtle" onClick={() => copy(requestToRawHttp(req))}><FileText className="h-3.5 w-3.5" />Copy as HTTP</Button>

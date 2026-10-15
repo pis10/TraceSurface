@@ -9,16 +9,19 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { AISite } from "@/types/ai";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Pager } from "@/components/shared/Pager";
 import { empty, statusLabel } from "./state";
 
 export function SitePicker({
   target,
+  model,
   onClose,
   onStarted,
 }: {
   target: string;
+  model: string;
   onClose: () => void;
   onStarted: (id: number) => void;
 }) {
@@ -78,14 +81,16 @@ export function SitePicker({
     >
       <DialogContent className="w-[min(850px,94vw)]">
         <DialogHeader>
-          <DialogTitle>开始分析</DialogTitle>
+          <DialogTitle>选择站点</DialogTitle>
           <DialogDescription>
-            只分析 2xx JSON 响应。未扫完的站点暂不分析。
+            只分析 2xx JSON 响应。没有符合条件接口或尚未扫完的站点会跳过。
             {target && `当前站点：${target}`}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex items-center gap-3 px-6 pb-3">
+        <div className="mx-6 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-line-2 bg-surface-content px-3 py-2.5 text-xs"><span className="text-text-3">本次使用 <span className="ml-2 font-mono text-text-2">{model}</span></span><span className="text-text-3">每个站点独立分析</span></div>
+        <div className="flex flex-wrap items-center gap-3 px-6 pb-3">
           <Input
+            className="min-w-[180px] flex-1"
             aria-label="筛选站点"
             placeholder="按站点地址筛选"
             value={search}
@@ -96,12 +101,11 @@ export function SitePicker({
               setChosen(new Set());
             }}
           />
-          <label className="shrink-0 text-xs">
-            <input
-              type="checkbox"
+          <label className="flex shrink-0 items-center gap-2 text-xs">
+            <Checkbox
               checked={all}
-              onChange={(e) => {
-                setAll(e.target.checked);
+              onCheckedChange={(checked) => {
+                setAll(checked === true);
                 setChosen(new Set());
               }}
             />{" "}
@@ -136,15 +140,14 @@ export function SitePicker({
               {data.items.map((s) => (
                 <tr key={s.id}>
                   <td>
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       aria-label={`选择 ${s.target_url}`}
                       checked={all || chosen.has(s.id)}
                       disabled={all}
-                      onChange={(e) =>
+                      onCheckedChange={(checked) =>
                         setChosen((old) => {
                           const n = new Set(old);
-                          if (e.target.checked) n.add(s.id);
+                          if (checked === true) n.add(s.id);
                           else n.delete(s.id);
                           return n;
                         })
@@ -178,11 +181,11 @@ export function SitePicker({
           onChange={(p) => setPage(p.page)}
         />
         <div className="border-t border-line-2 p-5">
-          <label className="text-xs">
-            <input
-              type="checkbox"
+          <div className="mb-3 flex items-center justify-between text-xs"><span>已选 <strong>{count.toLocaleString()}</strong> 个站点</span><span className="text-text-3">结果汇总到同一列表</span></div>
+          <label className="flex items-center gap-2 text-xs">
+            <Checkbox
               checked={force}
-              onChange={(e) => setForce(e.target.checked)}
+              onCheckedChange={(checked) => setForce(checked === true)}
             />{" "}
             重新分析已完成的站点
           </label>
