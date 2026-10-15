@@ -2,41 +2,31 @@
 
 ## 使用路径
 
-用户主动发起分析，以站点选择范围，每个已完成站点独立调用一次模型。复用现有 `2xx && JSON` 重放筛选；没有符合条件接口的站点直接跳过，不调用模型，也不视为“已分析、无疑似”。主列表只汇总疑似接口，不设风险等级，也不按站点生成报告文件。未完成扫描不会等待后自动分析。
-
-主页面显示当前模型、选择站点入口、批次进度和疑似结果。首次使用先配置模型，保存后继续选择站点。选择窗口显示本次使用的模型、筛选范围和已选数量；保留跨页全选。结果详情通过 Review、Response、Request 标签切换判断建议和原始报文，避免短窗口中两者互相挤压。
+用户主动发起分析，以站点选择范围，每个已完成站点独立调用一次模型。复用已有 `2xx && JSON` 重放筛选；零符合条件的站点跳过。未完成扫描不会等待后自动分析。主列表汇总疑似接口，不设风险分层，也不生成一站一份报告。
 
 ## 模型设置
 
-- **从目录选择**：服务商和模型由安装的 LiteLLM 包提供。国内常用服务商仅优先排序，不作为白名单。排除本地模型、OAuth、云凭据等不在产品范围内的接入方式，保留使用 API Key 的在线服务。已知容量自动显示，思考选项依据 SDK 元信息、参数支持与实际参数转换。缺少信息时提示使用自定义接入，不猜测容量。
-- **自定义接入**：选择 OpenAI Chat Completions、Anthropic Messages 或 Gemini generateContent 格式，手填模型标识、API 地址、最大输入和输出 tokens，以及思考参数方式和值、JSON 模式。不读取模型目录来推断这些能力，实际调用仍使用 SDK 原生适配器。
-- 只支持 API Key，不提供认证模式选择、环境变量回退、云凭据字段或无需认证的本地模型入口。密钥只保存在本机，浏览器仅获得已配置标识。切换服务商、API 格式或地址不会复用旧密钥。
-- 连接测试使用与正式分析相同的调用和输出校验，发送虚构报文，不保存设置、不自动发送扫描数据。失败显示可操作的原因，不回显密钥或服务端原文。
-- 设置采用宽面板、分区表单和固定底部操作。目录与自定义是两个明确入口；常用输入直接显示，目录模式的“更换 API 地址”按需展开。
+通过包依赖引入 `pydantic-ai-slim[openai,anthropic,google]`，不复制 SDK 源码，不部署网关、不启用工具或历史对话。
 
-## SDK 边界与调研
+- 内置服务商：读取 SDK 的已知模型与原生 Provider，国内常用服务商优先排列。仅包含已安装消息 API 支持、使用 API Key 的在线服务。模型选择支持搜索和输入新型号。**不展示或要求填写容量**，不因 SDK 缺少元信息而让用户补全；原生调用不设置自定义的 max_tokens，由 SDK / 服务商负责默认限制。
+- 自定义接入：四种消息格式为 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini generateContent。用户填写地址、模型名称、API Key、上下文容量、最大输出及结果格式。名称仅为服务端路由标识，不据此继承官方模型 Profile。
+- 自定义思考强度：提供 `minimal / low / medium / high / xhigh / max` 复选项，用户勾选服务实际支持的档位，然后选择默认强度。未勾选的档位不能成为默认值；取消当前默认档位时清空默认值，保存前要求重新选择。保留顺序与选择，所有档位只用英文。开关、预算、自适应为独立方式，不把它们混入强度档位。
+- API 格式决定参数结构，用户声明决定具体能力。Chat Completions 的强度使用 reasoning_effort，开关 / 预算使用 thinking 扩展；Responses 使用 reasoning.effort；Messages 使用原生 effort / thinking；Gemini 使用 thinking_level / thinking_budget。均通过 Pydantic AI 的公开原生设置传递，不写厂商或型号特例。
+- 内置模型的思考开关依据公开 Profile，具体强度仅展示 Profile 明确描述的枚举。SDK 未提供完整信息时保留默认，不从通用类型猜模型支持的所有档位。Kimi 在当前 SDK 中不能通过统一开关关闭思考，因此内置配置不展示关闭选项。
+- API Key 只存本机（0600），不返回页面或写入批次。切换接入模式、服务商、API 格式或地址不复用旧密钥。没有认证方式选择和环境变量密钥回退。
 
-本项目通过 `pyproject.toml` / `uv.lock` 引入 LiteLLM Python SDK，没有复制其源码，也不需要部署 LiteLLM Proxy。目录、路由、参数转换、默认服务地址均由 SDK 提供。
+## 调用与结果
 
-核对安装版本 1.105.1 与官方文档：
+单次 `Agent.run`，无工具、无历史、输出重试为 0、模型请求限制为 1，底层 SDK HTTP 重试同样关闭。Responses 禁用服务端存储。
 
-- [Python SDK](https://docs.litellm.ai/docs/): `acompletion` 统一调用与响应格式。
-- [Providers](https://docs.litellm.ai/docs/providers): SDK 原生适配器与可配置服务地址。
-- [Input Params](https://docs.litellm.ai/docs/completion/input): `get_supported_openai_params` 查询参数支持，具体值仍受模型与服务端限制。
-- [Thinking / Reasoning](https://docs.litellm.ai/docs/reasoning_content): `reasoning_effort` 与 `thinking`（预算、开关等）交给 SDK 转换。
-- 安装包中的 `provider_list`、`ProviderConfigManager`、`model_cost` 提供适配器、目录及能力元信息。`get_model_info` 对部分服务会进行远程查询，因此配置页面读取 SDK 随包目录，不触发连接或登录。目录可能缺失或滞后，不代表账户可用模型全集。
-- 服务商适配器不等于 API 协议。自定义接入只列出支持的三种消息格式，不把全部服务商重复列为“协议”。
+JSON Schema 使用 `NativeOutput`；JSON 模式使用 `PromptedOutput`；普通文本使用带 Schema 提示词的 `TextOutput` 解析函数。三种模式最终都得到同一个严格 Pydantic `SiteResult`。再校验接口编号完整性，遗漏、重复、未知 ID、错误类型及输出截断都不能记为成功。自定义输入通过本地 token 估算检查声明的上下文，预留用户声明的最大输出；这是估算，不是厂商精确 tokenizer。
 
-不维护第二份服务商和模型目录，不给单独厂商或型号打参数补丁，不静默丢弃用户选择的参数。用户填写容量仅用于本地预算检查，不能扩大服务端限制。自定义配置按请求使用，不注册全局模型覆盖，避免并发批次互相污染。
-
-思考强度枚举需要递归展开 SDK 的 `Optional[Literal[...]]`，直接读取外层 `get_args` 得不到档位。优先读取模型声明的档位；没有完整枚举时，使用 SDK 基础 low/medium/high，其他档位仅在元信息明确支持时显示。适配器合并或忽略的强度、预算不展示，强度直接显示英文值。
-
-SDK 的调用适配不等于完整的模型参数表。对 1.105.1 的转换检查表明：GPT 保留 reasoning_effort，Claude 转为 output_config.effort，Gemini 按型号转为预算或 thinkingLevel；DeepSeek 将非 none 的强度合并为开启思考，但[官方文档](https://api-docs.deepseek.com/guides/thinking_mode/)已提供 low/high/max。这种差异不通过型号特例修补：目录模式跟随 SDK，暂缺参数通过自定义接入明确填写。转换检查只能确认发出的参数，不能证明所有厂商服务端接受并执行了这些值。
-
-自定义接入使用 OpenAI 消息格式的 SDK 适配器时，用户声明的思考扩展通过 SDK 的 `extra_body` 传递，避免未知模型被目录规则过滤；其他协议仍走其原生适配器转换。服务端是否接受参数由连接测试验证，不能仅凭目录保证所有账户和模型都能调用。
+连接测试与正式分析共用全部调用、能力和结果校验，使用虚构报文，不发送扫描数据、不保存表单。错误映射为用户可读提示，不暴露服务端原文、请求报文或密钥。
 
 ## 数据与验证
 
-不兼容更新：配置格式为 3，数据库版本沿用 3；拒绝旧格式，不自动迁移或重写旧文件。密钥只存本机配置文件（0600），批次只保存不含密钥的配置快照；执行时使用提交时的密钥，切换模型不会影响已提交任务。
+配置格式 4，不兼容或迁移旧配置；数据库结构本轮不变。站点调度、三并发、失败隔离、批次快照和疑似结果存储继续由 TraceSurface 管理。
 
-验证包括：目录覆盖与路由、目录/自定义隔离、思考参数与容量预算、无密钥拒绝和旧认证字段拒绝、密钥脱敏、实际 SDK 到本地模拟服务的请求、站点任务流程和浏览器交互。真实请求体检查覆盖自定义接入 low/high/max 的区别，以及三种 API 格式；目录模式验证不会为 DeepSeek 擅自补强度支持。不使用真实付费服务完成本轮验证，不进行本机原生包编译，也不推送。
+测试覆盖四种真实 SDK 请求到本地模拟 HTTP 服务、自定义强度的原值传递、声明与默认值约束、容量仅自定义生效、原生模型名称不污染自定义 Profile、完整结果校验、零接口不请求、无自动重试、凭证隔离、配置 API 与站点任务流程。测试使用临时数据和虚构 Key；不进行本机原生二进制编译，不推送。
+
+参考：[模型与服务商](https://pydantic.dev/docs/ai/models/overview/) · [输出机制](https://pydantic.dev/docs/ai/core-concepts/output/) · [安装](https://pydantic.dev/docs/ai/overview/install/)

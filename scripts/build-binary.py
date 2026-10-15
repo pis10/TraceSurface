@@ -39,11 +39,10 @@ def main() -> None:
         "--python-flag=-m",
         "--assume-yes-for-downloads",
         "--playwright-include-browser=none",
-        "--user-package-configuration-file=scripts/nuitka-package.config.yml",
-        "--include-package=litellm",
-        "--include-package-data=litellm",
+        "--include-package=pydantic_ai",
+        "--include-package-data=genai_prices",
         "--include-package=tiktoken_ext",
-        "--include-distribution-metadata=litellm",
+        "--include-distribution-metadata=pydantic-ai-slim",
         "--include-distribution-metadata=tiktoken",
         # Default onefile unpacks to a unique temp dir on every launch.
         "--onefile-cache-mode=cached",
@@ -63,7 +62,9 @@ def main() -> None:
     command.append("tracesurface")
 
     subprocess.run(command, cwd=ROOT, check=True)
-    binary = OUTPUT_DIR / ("tracesurface.exe" if sys.platform == "win32" else "tracesurface")
+    binary = OUTPUT_DIR / (
+        "tracesurface.exe" if sys.platform == "win32" else "tracesurface"
+    )
     if not binary.is_file():
         raise SystemExit(f"Build finished but binary was not found: {binary}")
     print(binary)

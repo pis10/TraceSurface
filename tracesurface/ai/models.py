@@ -5,20 +5,23 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 class AISettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    format_version: Literal[3] = 3
+    format_version: Literal[4] = 4
     mode: Literal["catalog", "custom"] = "catalog"
     provider_id: str = Field(default="deepseek", min_length=1, max_length=100)
-    model: str = Field(default="deepseek-flash", min_length=1, max_length=200)
+    model: str = Field(default="deepseek-v4-flash", min_length=1, max_length=200)
     api_base: str = Field(default="", max_length=500)
     api_key: SecretStr = SecretStr("")
-    max_input_tokens: int | None = Field(default=None, ge=1024, le=100000000)
+    context_window: int | None = Field(default=None, ge=1024, le=100000000)
     max_output_tokens: int | None = Field(default=None, ge=256, le=10000000)
     reasoning_mode: Literal[
         "default", "effort", "budget", "enabled", "disabled", "adaptive"
     ] = "default"
     reasoning_effort: str = Field(default="", max_length=50)
     thinking_budget: int | None = Field(default=None, ge=1024, le=10000000)
-    json_mode: bool = False
+    output_mode: Literal["prompt", "json", "native"] = "prompt"
+    reasoning_efforts: list[
+        Literal["minimal", "low", "medium", "high", "xhigh", "max"]
+    ] = Field(default_factory=list, max_length=6)
     response_limit: int = Field(default=8192, ge=256, le=1048576)
 
     @field_validator("api_base")

@@ -1,29 +1,28 @@
 export type ReasoningMode = "default" | "effort" | "budget" | "enabled" | "disabled" | "adaptive";
 export type AISettings = {
-  format_version: 3;
+  format_version: 4;
   mode: "catalog" | "custom";
   provider_id: string;
   model: string;
   api_base: string;
   has_api_key: boolean;
   ready: boolean;
-  max_input_tokens: number | null;
+  context_window: number | null;
   max_output_tokens: number | null;
   reasoning_mode: ReasoningMode;
   reasoning_effort: string;
+  reasoning_efforts: string[];
   thinking_budget: number | null;
-  json_mode: boolean;
+  output_mode: "prompt" | "json" | "native";
   response_limit: number;
 };
 export type AISettingsInput = Omit<AISettings, "has_api_key" | "ready"> & {
   api_key: string;
 };
 export type AIModelDetails = {
-  max_input_tokens: number | null;
-  max_output_tokens: number | null;
   reasoning_modes: ReasoningMode[];
   reasoning_efforts: string[];
-  json_mode: boolean;
+  output_mode: "prompt" | "json" | "native";
 };
 export type AISite = {
   id: number;
@@ -68,7 +67,7 @@ export type AIFinding = {
 
 export type AIModel = { value: string; label: string };
 export type AIProvider = { id: string; label: string; models: AIModel[] };
-export type AICatalog = { providers: AIProvider[]; source: string; protocols: Array<{ id: string; label: string }> };
+export type AICatalog = { providers: AIProvider[]; source: string; efforts: string[]; protocols: Array<{ id: string; label: string }> };
 export type AIConnectionTest = {
   ok: boolean;
   message: string;

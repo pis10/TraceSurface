@@ -117,12 +117,12 @@ On first use, starting analysis opens model settings; saving them takes you to s
 
 Model settings offer two paths:
 
-- **From catalog**: providers and models come from the installed LiteLLM SDK, with commonly used Chinese providers listed first. The catalog covers hosted services with API key access. Capacity is filled automatically, and reasoning options follow model capabilities. Use custom setup when deployment metadata is unavailable.
-- **Custom connection**: choose OpenAI Chat Completions, Anthropic Messages, or Gemini generateContent, then enter the model/deployment name, API endpoint, key, input/output token limits, reasoning mode and values, and JSON-mode support. Capabilities are never inferred from the name.
+- **From catalog**: providers and models come from the installed Pydantic AI package, with commonly used Chinese providers listed first. Select a model and enter its API key; no capacity fields are required. The SDK and provider handle native limits. You can also enter a model ID not yet listed.
+- **Custom connection**: choose OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or Gemini generateContent. Enter the model ID, endpoint, key, context window, and maximum output tokens. For reasoning effort, check supported levels and then choose a default. Thinking switches and token budgets are separate options. Capabilities are declared by the user, never inferred from model names.
 
 ![Custom model settings using a local mock service](docs/images/ai-model-custom.jpg)
 
-Authentication requires only an API key, with no authentication selector or cloud credential fields. LiteLLM resolves default provider endpoints, which can be overridden. Reasoning options follow native SDK support and display effort values in English, without provider- or model-specific patches. Use custom setup for parameters the SDK does not yet expose. Actual model access and accepted parameters depend on the provider.
+Authentication requires only an API key, with no authentication selector or cloud credential fields. Pydantic AI resolves default provider endpoints, which can be overridden. Reasoning options follow native SDK support and display effort values in English, without provider- or model-specific patches. Use custom setup for parameters the SDK does not yet expose. Actual model access and accepted parameters depend on the provider.
 
 **Test connection** uses the current settings and validates the response format using a synthetic sample, without scan data or saving changes. Scan traffic is sent only when the user starts analysis.
 

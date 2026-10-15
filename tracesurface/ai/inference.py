@@ -1,114 +1,159 @@
-"""The same LiteLLM request builder powers connection tests and site reviews."""
+"""One site, one request, a validated result; shared by analysis and connection tests."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import time
-from typing import Any
+from dataclasses import asdict
+from typing import Any, cast
+
+from pydantic_ai import Agent, NativeOutput, PromptedOutput, TextOutput
+from pydantic_ai.models import Model, infer_model
+from pydantic_ai.profiles import DEFAULT_PROFILE, ModelProfile
+from pydantic_ai.providers import infer_provider_class
+from pydantic_ai.settings import ModelSettings
+from pydantic_ai.usage import UsageLimits
 
 from tracesurface.ai.models import AISettings, SiteResult, validate_result
 from tracesurface.ai.prompt import SYSTEM_PROMPT
-from tracesurface.ai.runtime import get_litellm
 from tracesurface.ai.settings import prepare_settings
 
 
-def request_options(
-    settings: AISettings, record_count: int = 1
-) -> tuple[dict[str, Any], int]:
-    settings = prepare_settings(settings)
-    # Custom capacities are user declarations; never infer from the model name.
-    context = int(settings.max_input_tokens or 0)
-    output_limit = int(settings.max_output_tokens or 0)
-    reserve = settings.thinking_budget or (
-        8192 if settings.reasoning_mode != "default" else 0
-    )
-    output = min(output_limit, context - 512, max(4096, record_count * 256 + reserve))
-    if (
-        settings.reasoning_mode == "budget"
-        and (settings.thinking_budget or 0) >= output
-    ):
-        raise ValueError("AI 思考预算占满输出空间，请增大容量或减少思考预算")
-    options: dict[str, Any] = {
-        "model": settings.model,
-        "custom_llm_provider": settings.provider_id,
-        "max_tokens": output,
-        "timeout": 300,
-        "num_retries": 0,
-        "stream": False,
-        "drop_params": False,
-    }
-    if not settings.api_key.get_secret_value().strip():
-        raise ValueError("AI 密钥不可用，请重新配置")
-    options["api_key"] = settings.api_key.get_secret_value()
-    if settings.api_base:
-        options["api_base"] = settings.api_base
-    mode = settings.reasoning_mode
-    if mode == "effort":
-        options["reasoning_effort"] = settings.reasoning_effort
-    elif mode == "budget":
-        options["thinking"] = {
-            "type": "enabled",
-            "budget_tokens": settings.thinking_budget,
-        }
-    elif mode != "default":
-        options["thinking"] = {"type": mode}
+def model_settings(settings: AISettings) -> ModelSettings:
+    options: dict[str, Any] = {"timeout": 300, "openai_store": False}
     if settings.mode == "custom":
-        from litellm.llms.openai.chat.gpt_transformation import OpenAIGPTConfig
-
-        from tracesurface.ai.catalog import chat_config
-
-        if isinstance(
-            chat_config(settings.provider_id, settings.model), OpenAIGPTConfig
-        ):
-            # User-declared extensions on an OpenAI-compatible wire must survive
-            # even when the SDK has no capability entry for this model name.
-            extra = {
-                key: options.pop(key)
-                for key in ("thinking", "reasoning_effort")
-                if key in options
+        options["max_tokens"] = settings.max_output_tokens
+    mode, effort = settings.reasoning_mode, settings.reasoning_effort
+    if settings.mode == "catalog":
+        if mode != "default":
+            options["thinking"] = effort if mode == "effort" else mode == "enabled"
+        return cast(ModelSettings, options)
+    protocol = settings.provider_id
+    thinking = {"type": mode}
+    if mode == "budget":
+        thinking = {"type": "enabled", "budget_tokens": settings.thinking_budget}
+    if protocol == "openai-chat":
+        if mode == "effort":
+            options["openai_reasoning_effort"] = effort
+        elif mode != "default":
+            options["extra_body"] = {"thinking": thinking}
+    elif protocol == "openai-responses":
+        options["openai_store"] = False
+        if mode in {"effort", "disabled"}:
+            options["openai_reasoning_effort"] = effort if mode == "effort" else "none"
+    elif protocol == "anthropic":
+        if mode == "effort":
+            options["anthropic_effort"] = effort
+            options["anthropic_thinking"] = {"type": "adaptive"}
+        elif mode == "enabled":
+            options["anthropic_thinking"] = {"type": "adaptive"}
+        elif mode != "default":
+            options["anthropic_thinking"] = thinking
+    elif protocol == "google":
+        if mode == "effort":
+            options["google_thinking_config"] = {"thinking_level": effort.upper()}
+        elif mode != "default":
+            options["google_thinking_config"] = {
+                "thinking_budget": settings.thinking_budget
+                if mode == "budget"
+                else 0
+                if mode == "disabled"
+                else -1
             }
-            if extra:
-                options["extra_body"] = extra
-    if settings.json_mode:
-        options["response_format"] = {"type": "json_object"}
-    return options, max(0, context - output)
+    return cast(ModelSettings, options)
+
+
+def create_model(settings: AISettings) -> Model:
+    key = settings.api_key.get_secret_value().strip()
+    if not key:
+        raise ValueError("AI 密钥不可用，请重新配置")
+    provider_id = settings.provider_id
+    cls = infer_provider_class(provider_id)
+    kwargs: dict[str, Any] = {"api_key": key}
+    if provider_id in {"anthropic", "google"} and settings.api_base:
+        kwargs["base_url"] = settings.api_base
+    if provider_id == "google":
+        from google.genai.types import HttpRetryOptions
+
+        kwargs["retry_options"] = HttpRetryOptions(attempts=1)
+    provider = cls(**kwargs)
+    if provider_id != "google":
+        provider.client.max_retries = 0
+        if settings.api_base:
+            provider.client.base_url = settings.api_base
+    model = infer_model(
+        f"{provider_id}:{settings.model}", provider_factory=lambda _: provider
+    )
+    if settings.mode == "custom":
+        # Replace, rather than merge with, name-based provider capabilities.
+        profile = cast(
+            ModelProfile,
+            {
+                **DEFAULT_PROFILE,
+                "context_window": settings.context_window,
+                "supports_json_schema_output": settings.output_mode == "native",
+                "supports_json_object_output": settings.output_mode == "json",
+            },
+        )
+        model = cast(Any, type(model))(
+            settings.model, provider=provider, profile=lambda _: profile
+        )
+    return model
+
+
+def estimate_input_tokens(payload: str) -> int:
+    import tiktoken
+
+    # This is a local estimate, not a provider-specific token count.
+    return len(tiktoken.get_encoding("cl100k_base").encode_ordinary(payload)) + 1024
+
+
+def parse_text_result(text: str) -> SiteResult:
+    return SiteResult.model_validate_json(text)
 
 
 async def analyze_configured(
     payload: dict[str, Any], settings: AISettings
 ) -> tuple[SiteResult, dict[str, Any]]:
-    llm = await asyncio.to_thread(get_litellm)
-    options, input_limit = await asyncio.to_thread(
-        request_options, settings, len(payload["records"])
-    )
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-            + "\nJSON Schema: "
-            + json.dumps(SiteResult.model_json_schema(), ensure_ascii=False),
-        },
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-    ]
-    tokens = await asyncio.to_thread(
-        llm.token_counter,
-        model=f"{settings.provider_id}/{settings.model}",
-        messages=messages,
-    )
-    if tokens > input_limit:
-        raise ValueError(
-            f"本站输入约 {tokens} tokens，超过当前模型可用容量 {input_limit}；请选择上下文更大的模型"
+    settings = prepare_settings(settings)
+    if not payload["records"]:
+        return SiteResult(results=[]), {}
+    prompt = json.dumps(payload, ensure_ascii=False)
+    schema = json.dumps(SiteResult.model_json_schema(), ensure_ascii=False)
+    if settings.mode == "custom":
+        tokens = await asyncio.to_thread(
+            estimate_input_tokens, SYSTEM_PROMPT + schema + prompt
         )
-    response = await llm.acompletion(messages=messages, **options)
-    choice = response.choices[0]
-    if choice.finish_reason != "stop" or not choice.message.content:
+        input_limit = (settings.context_window or 0) - (settings.max_output_tokens or 0)
+        if tokens > input_limit:
+            raise ValueError(
+                f"本站输入约 {tokens} tokens，超过当前模型可用容量 {input_limit}；请选择上下文更大的模型"
+            )
+    model = create_model(settings)
+    instructions = SYSTEM_PROMPT
+    if settings.output_mode == "native":
+        output = NativeOutput(SiteResult)
+    elif settings.output_mode == "json":
+        output = PromptedOutput(SiteResult)
+    else:
+        output = TextOutput(parse_text_result)
+        instructions += "\nJSON Schema: " + schema
+    agent = Agent(
+        model,
+        instructions=instructions,
+        output_type=output,
+        model_settings=model_settings(settings),
+        retries=0,
+    )
+    async with agent:
+        run = await agent.run(prompt, usage_limits=UsageLimits(request_limit=1))
+    if run.response.finish_reason not in {None, "stop"}:
         raise ValueError("AI 未完整返回结果，请重试或更换模型")
     result = validate_result(
-        choice.message.content, {r["replay_id"] for r in payload["records"]}
+        run.output.model_dump_json(), {r["replay_id"] for r in payload["records"]}
     )
-    usage = response.usage.model_dump() if response.usage else {}
-    return result, usage
+    return result, asdict(run.usage)
 
 
 async def test_connection(settings: AISettings) -> dict[str, Any]:

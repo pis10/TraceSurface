@@ -22,7 +22,7 @@ def load_settings() -> AISettings:
     try:
         if path.exists():
             raw = json.loads(path.read_text())
-            if not isinstance(raw, dict) or raw.get("format_version") != 3:
+            if not isinstance(raw, dict) or raw.get("format_version") != 4:
                 raise ValueError("incompatible")
             settings = AISettings.model_validate(raw)
         else:
@@ -42,8 +42,8 @@ def public_settings(settings: AISettings) -> dict[str, Any]:
     }
 
 
-def credential_scope(settings: AISettings) -> tuple[str, str]:
-    return settings.provider_id, settings.api_base.rstrip("/")
+def credential_scope(settings: AISettings) -> tuple[str, str, str]:
+    return settings.mode, settings.provider_id, settings.api_base.rstrip("/")
 
 
 def with_saved_credentials(settings: AISettings) -> AISettings:
@@ -72,38 +72,52 @@ def save_settings(settings: AISettings) -> None:
 
 
 def prepare_settings(value: AISettings, *, credentials: bool = False) -> AISettings:
-    from tracesurface.ai.catalog import CUSTOM_PROTOCOLS, find_provider, model_details
+    from tracesurface.ai.catalog import CUSTOM_PROTOCOLS, model_details
 
-    find_provider(value.provider_id)
     if value.mode == "custom":
         if value.provider_id not in {item["id"] for item in CUSTOM_PROTOCOLS}:
             raise ValueError("请选择支持的 API 格式")
         if not value.api_base:
             raise ValueError("请填写模型服务的 API 地址")
-    if value.mode == "catalog":
+        if value.provider_id == "openai-responses" and value.reasoning_mode not in {
+            "default",
+            "effort",
+            "disabled",
+        }:
+            raise ValueError("Responses 格式请选择默认设置、按强度或关闭思考")
+        if value.provider_id == "google" and value.reasoning_mode == "adaptive":
+            raise ValueError("Gemini 格式请选择默认设置、按强度或按 token 预算")
+        if value.provider_id == "anthropic" and value.output_mode == "json":
+            raise ValueError("Messages 格式请选择提示词约束或 JSON Schema")
+    else:
         details = model_details(value.provider_id, value.model)
         if value.reasoning_mode not in details["reasoning_modes"]:
-            raise ValueError("当前模型不支持所选思考方式")
-        if (
-            value.reasoning_mode == "effort"
-            and details["reasoning_efforts"]
-            and value.reasoning_effort not in details["reasoning_efforts"]
-        ):
-            raise ValueError("当前模型不支持所选思考强度")
+            raise ValueError("当前模型目录未提供所选思考方式，请使用自定义接入")
         value = value.model_copy(
             update={
-                k: details[k]
-                for k in ("max_input_tokens", "max_output_tokens", "json_mode")
+                "context_window": None,
+                "max_output_tokens": None,
+                "reasoning_efforts": details["reasoning_efforts"],
+                "output_mode": details["output_mode"],
             }
         )
-    if not value.max_input_tokens or not value.max_output_tokens:
-        raise ValueError("请在自定义接入中填写最大输入和最大输出 tokens")
-    if value.reasoning_mode == "effort" and not value.reasoning_effort.strip():
-        raise ValueError("请填写或选择思考强度")
-    if value.reasoning_mode == "budget" and (
-        not value.thinking_budget or value.thinking_budget >= value.max_output_tokens
+    if value.mode == "custom":
+        if not value.context_window or not value.max_output_tokens:
+            raise ValueError("请填写上下文容量和最大输出 tokens")
+        if value.max_output_tokens >= value.context_window:
+            raise ValueError("最大输出需小于上下文容量，给输入保留空间")
+    if len(value.reasoning_efforts) != len(set(value.reasoning_efforts)):
+        raise ValueError("支持的思考强度不能重复")
+    if (
+        value.reasoning_mode == "effort"
+        and value.reasoning_effort not in value.reasoning_efforts
     ):
-        raise ValueError("思考预算需至少 1024 tokens，且小于最大输出 tokens")
+        raise ValueError("请勾选支持的思考强度，并从中选择默认强度")
+    if value.reasoning_mode == "budget" and (
+        not value.thinking_budget
+        or value.thinking_budget >= (value.max_output_tokens or 0)
+    ):
+        raise ValueError("思考预算需至少 1024 tokens，且小于输出上限")
     if credentials:
         value = with_saved_credentials(value)
         if not value.api_key.get_secret_value().strip():

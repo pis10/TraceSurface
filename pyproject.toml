@@ -25,8 +25,9 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pyyaml>=6.0.2",
-    "litellm>=1.105.1,<2",
+    "pydantic-ai-slim[openai,anthropic,google]>=2.56.0,<3",
     "pydantic>=2.10,<3",
+    "tiktoken>=0.14,<1",
 ]
 
 [project.scripts]

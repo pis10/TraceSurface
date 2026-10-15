@@ -83,7 +83,7 @@ def safe_error(exc: Exception) -> str:
         return "模型未接受当前配置，请检查所选模型及思考设置"
     if "Timeout" in kind:
         return "模型请求超时，请稍后重试"
-    if kind == "ValidationError":
+    if kind in {"ValidationError", "UnexpectedModelBehavior", "UsageLimitExceeded"}:
         return "AI 返回格式不符合约定，未保存为分析成功，请重试"
     # Only locally generated ValueErrors have trusted messages.
     if type(exc) is ValueError and str(exc).startswith(
@@ -91,6 +91,14 @@ def safe_error(exc: Exception) -> str:
     ):
         return str(exc)
     status = getattr(exc, "status_code", None)
+    if status in {401, 403}:
+        return "模型认证失败，请检查密钥及账户权限"
+    if status == 429:
+        return "模型限流或余额不足，请检查账户后重试"
+    if status == 404:
+        return "找不到所选模型，请检查模型名称及 API 地址"
+    if status == 400:
+        return "模型未接受当前配置，请检查所选模型及思考设置"
     suffix = f" / HTTP {status}" if isinstance(status, int) else ""
     return f"模型调用失败{suffix}，请检查模型、账户权限和网络"
 

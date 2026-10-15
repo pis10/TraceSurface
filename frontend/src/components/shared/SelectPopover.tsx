@@ -27,6 +27,7 @@ type SelectPopoverProps = {
   icon?: "check" | "globe" | "none";
   className?: string;
   searchable?: boolean;
+  allowCustom?: boolean;
   onChange: (value: string) => void;
 };
 
@@ -41,6 +42,7 @@ export function SelectPopover({
   icon = "check",
   className,
   searchable = true,
+  allowCustom = false,
   onChange,
 }: SelectPopoverProps) {
   const [open, setOpen] = useState(false);
@@ -139,6 +141,9 @@ export function SelectPopover({
           aria-label={label}
           className="max-h-72 overflow-auto"
         >
+          {allowCustom && query.trim() && !options.some((o) => o.value === query.trim()) && (
+            <OptionRow active={false} label={`使用 ${query.trim()}`} onClick={() => choose(query.trim())} />
+          )}
           {allLabel && (
             <OptionRow
               active={!value}
