@@ -54,30 +54,6 @@
 
 打开 **http://127.0.0.1:8765** 查看报告。扫描优先使用本机 Google Chrome；没有 Chrome 时，会自动下载 Chromium。
 
-> [!IMPORTANT]
-> **从旧版升级到 v1.4：数据与 AI 配置格式不兼容，不提供迁移。** 请保留旧目录，并通过 `TRACESURFACE_HOME` 指定一个新目录后重新扫描。程序不会自动转换或删除旧数据。
-
-<details>
-<summary>指定新的数据目录</summary>
-
-macOS / Linux，在同一终端中运行扫描与报告服务：
-
-```bash
-export TRACESURFACE_HOME="$HOME/.tracesurface-v1.4"
-./tracesurface scan https://target.example
-./tracesurface serve
-```
-
-Windows PowerShell：
-
-```powershell
-$env:TRACESURFACE_HOME = "$env:USERPROFILE\.tracesurface-v1.4"
-.\tracesurface.exe scan https://target.example
-.\tracesurface.exe serve
-```
-
-</details>
-
 <details>
 <summary>从源码运行</summary>
 

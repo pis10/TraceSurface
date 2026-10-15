@@ -54,30 +54,6 @@ Download and extract the archive for your platform from [Releases](https://githu
 
 Open **http://127.0.0.1:8765**. TraceSurface uses your installed Google Chrome when available, or downloads Chromium on the first scan.
 
-> [!IMPORTANT]
-> **Upgrading to v1.4: older data and AI configuration formats are incompatible. No migration is provided.** Keep your old directory and select a fresh one with `TRACESURFACE_HOME`, then rescan. Existing data is never converted or deleted automatically.
-
-<details>
-<summary>Use a new data directory</summary>
-
-macOS / Linux, run both scanning and the report service in the same terminal:
-
-```bash
-export TRACESURFACE_HOME="$HOME/.tracesurface-v1.4"
-./tracesurface scan https://target.example
-./tracesurface serve
-```
-
-Windows PowerShell:
-
-```powershell
-$env:TRACESURFACE_HOME = "$env:USERPROFILE\.tracesurface-v1.4"
-.\tracesurface.exe scan https://target.example
-.\tracesurface.exe serve
-```
-
-</details>
-
 <details>
 <summary>Run from source</summary>
 
