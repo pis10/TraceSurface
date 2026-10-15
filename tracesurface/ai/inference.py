@@ -1,4 +1,4 @@
-"""One site, one request, a validated result; shared by analysis and connection tests."""
+"""Site analysis with bounded format correction, shared by connection tests."""
 
 from __future__ import annotations
 
@@ -8,16 +8,32 @@ import time
 from dataclasses import asdict
 from typing import Any, cast
 
-from pydantic_ai import Agent, NativeOutput, PromptedOutput, TextOutput
+from pydantic_ai import Agent, NativeOutput, PromptedOutput, capture_run_messages
+from pydantic_ai.exceptions import UnexpectedModelBehavior
+from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import Model, infer_model
 from pydantic_ai.profiles import DEFAULT_PROFILE, ModelProfile
 from pydantic_ai.providers import infer_provider_class
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.usage import RunUsage, UsageLimits
 
-from tracesurface.ai.models import AISettings, SiteResult, validate_result
+from tracesurface.ai.models import AISettings, SiteResult
+from tracesurface.ai.output import AIOutputError, parse_text_result, validate_coverage
 from tracesurface.ai.prompt import SYSTEM_PROMPT
 from tracesurface.ai.settings import prepare_settings
+
+MAX_OUTPUT_ATTEMPTS = 4
+
+
+def check_completion(response: ModelResponse) -> None:
+    if response.finish_reason == "length":
+        raise ValueError(
+            "AI 输出达到 token 上限而被截断，请增大最大输出或降低思考强度后重试"
+        )
+    if response.finish_reason == "content_filter":
+        raise ValueError("AI 服务拒绝返回分析结果，请检查模型服务的内容限制")
+    if response.finish_reason not in {None, "stop"}:
+        raise ValueError("AI 未完整返回结果，请重试或更换模型")
 
 
 def model_settings(settings: AISettings) -> ModelSettings:
@@ -84,10 +100,6 @@ def estimate_input_tokens(payload: str) -> int:
     return len(tiktoken.get_encoding("cl100k_base").encode_ordinary(payload)) + 1024
 
 
-def parse_text_result(text: str) -> SiteResult:
-    return SiteResult.model_validate_json(text)
-
-
 async def analyze_configured(
     payload: dict[str, Any], settings: AISettings
 ) -> tuple[SiteResult, dict[str, Any]]:
@@ -96,15 +108,6 @@ async def analyze_configured(
         return SiteResult(results=[]), {}
     prompt = json.dumps(payload, ensure_ascii=False)
     schema = json.dumps(SiteResult.model_json_schema(), ensure_ascii=False)
-    if settings.mode == "custom":
-        tokens = await asyncio.to_thread(
-            estimate_input_tokens, SYSTEM_PROMPT + schema + prompt
-        )
-        input_limit = (settings.context_window or 0) - (settings.max_output_tokens or 0)
-        if tokens > input_limit:
-            raise ValueError(
-                f"本站输入约 {tokens} tokens，超过当前模型可用容量 {input_limit}；请选择上下文更大的模型"
-            )
     model = create_model(settings)
     instructions = SYSTEM_PROMPT
     if model.profile.get("supports_json_schema_output"):
@@ -112,23 +115,77 @@ async def analyze_configured(
     elif model.profile.get("supports_json_object_output"):
         output = PromptedOutput(SiteResult)
     else:
-        output = TextOutput(parse_text_result)
+        # Parse after checking finish_reason so a truncated JSON document is not
+        # misreported as a schema error (or needlessly retried at the same budget).
+        output = str
         instructions += "\nJSON Schema: " + schema
-    agent = Agent(
+    agent: Agent[None, Any] = Agent(
         model,
         instructions=instructions,
         output_type=output,
         model_settings=model_settings(settings),
         retries=0,
     )
+    usage = RunUsage()
+    expected_ids = {r["replay_id"] for r in payload["records"]}
+    correction = ""
     async with agent:
-        run = await agent.run(prompt, usage_limits=UsageLimits(request_limit=1))
-    if run.response.finish_reason not in {None, "stop"}:
-        raise ValueError("AI 未完整返回结果，请重试或更换模型")
-    result = validate_result(
-        run.output.model_dump_json(), {r["replay_id"] for r in payload["records"]}
-    )
-    return result, asdict(run.usage)
+        for attempt in range(MAX_OUTPUT_ATTEMPTS):
+            request = prompt + correction
+            if settings.mode == "custom":
+                tokens = await asyncio.to_thread(
+                    estimate_input_tokens, instructions + request
+                )
+                input_limit = (settings.context_window or 0) - (
+                    settings.max_output_tokens or 0
+                )
+                if tokens > input_limit:
+                    raise ValueError(
+                        f"本站输入约 {tokens} tokens，超过当前模型可用容量 {input_limit}；请选择上下文更大的模型"
+                    )
+            try:
+                with capture_run_messages() as messages:
+                    try:
+                        run = await agent.run(
+                            request,
+                            usage=usage,
+                            usage_limits=UsageLimits(request_limit=MAX_OUTPUT_ATTEMPTS),
+                        )
+                    except UnexpectedModelBehavior:
+                        # Native schema parsing can fail before agent.run returns.
+                        response = next(
+                            (
+                                m
+                                for m in reversed(messages)
+                                if isinstance(m, ModelResponse)
+                            ),
+                            None,
+                        )
+                        if response is not None:
+                            check_completion(response)
+                        raise AIOutputError(
+                            "AI 未返回符合约定的 JSON 结果，请严格遵循 JSON Schema"
+                        ) from None
+                check_completion(run.response)
+                result = (
+                    parse_text_result(run.output)
+                    if isinstance(run.output, str)
+                    else run.output
+                )
+                validate_coverage(result, expected_ids)
+                return result, asdict(usage)
+            except AIOutputError as exc:
+                if attempt == MAX_OUTPUT_ATTEMPTS - 1:
+                    raise AIOutputError(
+                        f"{exc}；自动纠错 {MAX_OUTPUT_ATTEMPTS - 1} 次后仍失败，未保存为分析成功"
+                    ) from None
+                # Start fresh to bound context growth and avoid feeding malformed
+                # output back as instructions. Only our sanitized diagnostic is added.
+                correction = (
+                    f"\n\n上次输出校验失败：{exc}。请重新分析上面的全部 records，返回完整结果。"
+                    "只输出 JSON 对象；不要 Markdown、思考过程或说明文字。"
+                )
+    raise AssertionError("unreachable")
 
 
 async def test_connection(settings: AISettings) -> dict[str, Any]:

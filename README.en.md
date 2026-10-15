@@ -92,6 +92,8 @@ The built-in catalog comes from [Pydantic AI](https://ai.pydantic.dev/) and incl
 
 Choose **自定义接入 (Custom connection)** for your own compatible service. Supported APIs are OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini generateContent. Enter the endpoint, model ID, API key, context window, and maximum output, then check the reasoning effort levels your service supports.
 
+Analysis and connection tests share result validation. Prompts include complete input/output examples, and text responses may wrap JSON in code fences, explanatory prose, or completed `<think>` blocks. Invalid fields or interface IDs trigger up to three correction requests (four requests including the first, within the total timeout). Results are saved only after every interface passes validation. For truncated output, increase the output limit or reduce reasoning effort. Network, authentication, and truncation errors are not automatically retried.
+
 The **默认强度 (Default effort)** selector determines the effort used for analysis. For example, checking `low / high / max` and selecting `high` sends `high` for each analysis. `default` leaves effort unspecified so the service decides. Catalog models use SDK mappings; the effect of each level can vary by model.
 
 <details>

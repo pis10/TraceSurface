@@ -8,6 +8,7 @@ from typing import Any
 from tracesurface.ai import repository as repo
 from tracesurface.ai.inference import analyze_configured as analyze
 from tracesurface.ai.models import AISettings, SiteResult
+from tracesurface.ai.output import AIOutputError
 from tracesurface.storage.sqlite.queries import get_replay
 
 ANALYSIS_TIMEOUT_SECONDS = 300
@@ -70,6 +71,8 @@ def build_payload(
 def safe_error(exc: Exception) -> str:
     # Provider exceptions can contain API keys, input bodies and response content.
     # Never persist or return their raw text.
+    if isinstance(exc, AIOutputError):
+        return str(exc)
     kind = type(exc).__name__
     if kind in {"AuthenticationError", "PermissionDeniedError"}:
         return "模型认证失败，请检查密钥及账户权限"

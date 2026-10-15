@@ -37,6 +37,13 @@ class ModelHandler(BaseHTTPRequestHandler):
                 }
             ]
         }
+        # Exercise all three correction opportunities in the packaged runtime,
+        # then verify that presentation wrappers are accepted without another call.
+        output = (
+            '{"results": []}'
+            if type(self).calls.count(self.path) <= 3
+            else '<think>synthetic reasoning</think>\n```json\n' + json.dumps(result) + '\n```'
+        )
         if self.path == "/v1/chat/completions":
             response = {
                 "id": "smoke",
@@ -46,7 +53,7 @@ class ModelHandler(BaseHTTPRequestHandler):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": json.dumps(result)},
+                        "message": {"role": "assistant", "content": output},
                         "finish_reason": "stop",
                     }
                 ],
@@ -57,7 +64,7 @@ class ModelHandler(BaseHTTPRequestHandler):
             assert request.get("contents"), "Gemini request contents missing"
             response = {
                 "candidates": [{
-                    "content": {"role": "model", "parts": [{"text": json.dumps(result)}]},
+                    "content": {"role": "model", "parts": [{"text": output}]},
                     "finishReason": "STOP",
                     "index": 0,
                 }],
@@ -144,9 +151,10 @@ def main():
                         with urlopen(request, timeout=70) as response:
                             result = json.load(response)
                         assert result.get("ok") is True, (provider, result)
-                    assert ModelHandler.calls == [
-                        "/v1/chat/completions", "/v1beta/models/smoke-model:generateContent",
-                    ], ModelHandler.calls
+                    assert ModelHandler.calls == (
+                        ["/v1/chat/completions"] * 4
+                        + ["/v1beta/models/smoke-model:generateContent"] * 4
+                    ), ModelHandler.calls
                     print(
                         "Packaged report, model catalog, OpenAI and Gemini requests: OK", flush=True
                     )

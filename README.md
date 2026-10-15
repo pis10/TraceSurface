@@ -92,6 +92,8 @@ uv run tracesurface serve
 
 有自己的兼容服务时，选择 **自定义接入**。支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 和 Gemini generateContent 四种 API 格式。填写服务地址、模型名称、API Key、上下文容量与最大输出，再勾选服务支持的思考强度。
 
+分析与连接测试使用同一套结果校验：提示词包含完整输入/输出示例，兼容 JSON 外的代码块、说明文字和已结束的 `<think>` 内容；字段或接口编号不合格时最多自动纠错三次（含首次共四次请求，仍受总超时限制）。所有接口均通过校验后才保存成功。若提示输出被截断，请增大最大输出或降低思考强度；网络、认证和截断错误不会自动重复请求。
+
 页面中的“默认强度”就是分析实际使用的档位：例如勾选 `low / high / max` 后选中 `high`，分析便使用 `high`。`default` 表示不指定强度，由服务决定；内置模型的档位转换由 SDK 处理，不同型号的实际效果可能不同。
 
 <details>

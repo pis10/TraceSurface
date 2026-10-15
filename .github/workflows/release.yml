@@ -120,9 +120,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          notes_file=".github/release-notes/$GITHUB_REF_NAME.md"
-          test -s "$notes_file"
-          gh release create "$GITHUB_REF_NAME" release/* \
-            --verify-tag \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file "$notes_file"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber
+          else
+            notes_file=".github/release-notes/$GITHUB_REF_NAME.md"
+            test -s "$notes_file"
+            gh release create "$GITHUB_REF_NAME" release/* \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file "$notes_file"
+          fi

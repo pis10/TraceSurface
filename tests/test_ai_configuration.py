@@ -230,6 +230,7 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
         }
         self.status = 200
         self.finish = "stop"
+        self.outputs = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -239,7 +240,9 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 owner.received.append((self.path, body))
-                result = json.dumps(owner.result)
+                result = (
+                    owner.outputs.pop(0) if owner.outputs else json.dumps(owner.result)
+                )
                 path = self.path.split("?")[0]
                 if owner.status != 200:
                     response = {
@@ -253,7 +256,12 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
                         id="resp_local",
                         object="response",
                         created_at=1,
-                        status="completed",
+                        status="incomplete"
+                        if owner.finish == "length"
+                        else "completed",
+                        incomplete_details={"reason": "max_output_tokens"}
+                        if owner.finish == "length"
+                        else None,
                         model=body["model"],
                         output=[
                             dict(
@@ -442,7 +450,7 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn(key, body)
             self.assertNotIn("thinkingConfig", body.get("generationConfig", {}))
 
-    async def test_invalid_output_and_id_coverage_do_not_retry(self):
+    async def test_invalid_output_and_id_coverage_have_bounded_correction(self):
         for result in [
             {"results": "wrong"},
             {"results": []},
@@ -459,13 +467,91 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
         ]:
             self.result = result
             before = len(self.received)
-            with self.assertRaises(Exception):
+            with self.assertRaisesRegex(ValueError, "自动纠错 3 次") as caught:
                 await test_connection(self.config())
+            self.assertEqual(len(self.received), before + 4)
+            self.assertIn("未保存为分析成功", safe_error(caught.exception))
+
+    async def test_wrapped_json_succeeds_without_extra_requests(self):
+        for protocol in ["openai-chat", "openai-responses", "anthropic", "google"]:
+            self.outputs = [
+                "<think>analysis {not JSON}</think>\n```json\n"
+                + json.dumps(self.result)
+                + "\n```"
+            ]
+            before = len(self.received)
+            await test_connection(self.config(provider_id=protocol))
             self.assertEqual(len(self.received), before + 1)
+
+    async def test_correction_recovers_and_accumulates_usage(self):
+        for invalid in [
+            "not json secret-response-value",
+            '{"results": []}',
+            json.dumps(self.result).replace("false", '"false"'),
+        ]:
+            self.outputs = [invalid]
+            before = len(self.received)
+            result, usage = await analyze_configured(
+                {"records": [{"replay_id": 1}]}, self.config()
+            )
+            self.assertFalse(result.results[0].suspected)
+            self.assertEqual(len(self.received), before + 2)
+            self.assertEqual(usage["requests"], 2)
+            self.assertEqual(usage["input_tokens"], 24)
+            self.assertEqual(usage["output_tokens"], 20)
+            correction = json.dumps(self.received[-1][1], ensure_ascii=False)
+            self.assertIn("上次输出校验失败", correction)
+            self.assertNotIn("secret-response-value", correction)
+
+    async def test_native_schema_failure_can_be_corrected(self):
+        self.outputs = ['{"results": "wrong"}']
+        await test_connection(
+            self.config(mode="catalog", provider_id="openai", model="gpt-4o")
+        )
+        self.assertEqual(len(self.received), 2)
+
+    async def test_third_correction_can_succeed(self):
+        self.outputs = ['{"results": []}'] * 3
+        result, usage = await analyze_configured(
+            {"records": [{"replay_id": 1}]}, self.config()
+        )
+        self.assertFalse(result.results[0].suspected)
+        self.assertEqual(len(self.received), 4)
+        self.assertEqual(usage["requests"], 4)
 
     async def test_truncated_response_is_not_success(self):
         self.finish = "length"
-        with self.assertRaises(Exception):
+        for content in [json.dumps(self.result), '{"results": [', ""]:
+            self.outputs = [content]
+            before = len(self.received)
+            with self.assertRaisesRegex(ValueError, "token 上限"):
+                await test_connection(self.config())
+            self.assertEqual(len(self.received), before + 1)
+
+    async def test_native_truncation_is_not_retried_as_schema_error(self):
+        self.outputs = ['{"results": [']
+        self.finish = "length"
+        with self.assertRaisesRegex(ValueError, "token 上限"):
+            await test_connection(
+                self.config(mode="catalog", provider_id="openai", model="gpt-4o")
+            )
+        self.assertEqual(len(self.received), 1)
+
+    async def test_content_filter_is_not_retried(self):
+        self.finish = "content_filter"
+        with self.assertRaisesRegex(ValueError, "内容限制"):
+            await test_connection(self.config())
+        self.assertEqual(len(self.received), 1)
+
+    async def test_correction_rechecks_input_budget(self):
+        self.outputs = ["not json"]
+        with (
+            patch(
+                "tracesurface.ai.inference.estimate_input_tokens",
+                side_effect=[100, 50000],
+            ),
+            self.assertRaisesRegex(ValueError, "容量"),
+        ):
             await test_connection(self.config())
         self.assertEqual(len(self.received), 1)
 
