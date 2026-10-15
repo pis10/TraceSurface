@@ -41,9 +41,12 @@ def main() -> None:
         "--playwright-include-browser=none",
         "--include-package=pydantic_ai",
         "--include-package-data=genai_prices",
-        # This generated data table exhausts MSVC's optimizer heap as C code.
-        # Bundle the original module as bytecode, preserving the full catalog.
+        # Generated catalog data and Google SDK schemas exceed MSVC's optimizer
+        # heap as C code. Preserve the original modules as bundled bytecode.
         "--noinclude-custom-mode=genai_prices.data:bytecode",
+        "--noinclude-custom-mode=google.genai:bytecode",
+        "--show-scons",
+        f"--report={OUTPUT_DIR / 'compilation-report.xml'}",
         "--include-package=tiktoken_ext",
         "--include-distribution-metadata=pydantic-ai-slim",
         "--include-distribution-metadata=tiktoken",

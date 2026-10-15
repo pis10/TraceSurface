@@ -49,6 +49,16 @@ jobs:
       - name: Build binary
         run: uv run --with nuitka==4.1.3 --with ordered-set --with zstandard python scripts/build-binary.py
 
+      - name: Upload compilation diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compilation-report-${{ matrix.runner }}
+          path: |
+            build/nuitka/compilation-report.xml
+            nuitka-crash-report.xml
+          if-no-files-found: ignore
+
       - name: Smoke test
         shell: bash
         run: |

@@ -18,15 +18,14 @@ from urllib.request import Request, urlopen
 
 
 class ModelHandler(BaseHTTPRequestHandler):
-    calls = 0
+    calls: list[str] = []
 
     def log_message(self, *_):
         pass
 
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        type(self).calls += 1
-        assert self.path == "/v1/chat/completions", self.path
+        type(self).calls.append(self.path)
         assert not request.get("tools"), "Analysis must not call tools"
         result = {
             "results": [
@@ -38,20 +37,37 @@ class ModelHandler(BaseHTTPRequestHandler):
                 }
             ]
         }
-        response = {
-            "id": "smoke",
-            "object": "chat.completion",
-            "created": 1,
-            "model": request["model"],
-            "choices": [
-                {
+        if self.path == "/v1/chat/completions":
+            response = {
+                "id": "smoke",
+                "object": "chat.completion",
+                "created": 1,
+                "model": request["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": json.dumps(result)},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 10, "total_tokens": 22},
+            }
+        else:
+            assert self.path == "/v1beta/models/smoke-model:generateContent", self.path
+            assert request.get("contents"), "Gemini request contents missing"
+            response = {
+                "candidates": [{
+                    "content": {"role": "model", "parts": [{"text": json.dumps(result)}]},
+                    "finishReason": "STOP",
                     "index": 0,
-                    "message": {"role": "assistant", "content": json.dumps(result)},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {"prompt_tokens": 12, "completion_tokens": 10, "total_tokens": 22},
-        }
+                }],
+                "usageMetadata": {
+                    "promptTokenCount": 12,
+                    "candidatesTokenCount": 10,
+                    "totalTokenCount": 22,
+                },
+                "modelVersion": "smoke-model",
+            }
         body = json.dumps(response).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -116,18 +132,23 @@ def main():
                         "context_window": 32000,
                         "max_output_tokens": 1024,
                     }
-                    request = Request(
-                        base + "/api/ai/test",
-                        data=json.dumps(config).encode(),
-                        headers={"Content-Type": "application/json"},
-                        method="POST",
-                    )
-                    with urlopen(request, timeout=70) as response:
-                        result = json.load(response)
-                    assert result.get("ok") is True, result
-                    assert ModelHandler.calls == 1, ModelHandler.calls
+                    for provider, suffix in (("openai-chat", "/v1"), ("google", "")):
+                        config["provider_id"] = provider
+                        config["api_base"] = f"http://127.0.0.1:{mock.server_port}{suffix}"
+                        request = Request(
+                            base + "/api/ai/test",
+                            data=json.dumps(config).encode(),
+                            headers={"Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        with urlopen(request, timeout=70) as response:
+                            result = json.load(response)
+                        assert result.get("ok") is True, (provider, result)
+                    assert ModelHandler.calls == [
+                        "/v1/chat/completions", "/v1beta/models/smoke-model:generateContent",
+                    ], ModelHandler.calls
                     print(
-                        "Packaged report, model catalog, and AI request: OK", flush=True
+                        "Packaged report, model catalog, OpenAI and Gemini requests: OK", flush=True
                     )
                 except BaseException:
                     log.flush()
