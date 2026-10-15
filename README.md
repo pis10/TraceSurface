@@ -18,7 +18,7 @@
 
 接口多时，可以手动选择站点交给 **AI Review** 分析。所有站点的疑似接口集中呈现，保留判断依据和原始报文，方便逐项复核。
 
-![重放报告：接口列表与原始响应并排查看](docs/images/report-verification.jpg)
+![重放报告：接口列表与原始响应并排查看](.github/images/report-verification.jpg)
 
 ## 能做什么
 
@@ -80,7 +80,7 @@ uv run tracesurface serve
 3. 点击 **选择站点分析**，勾选站点，或选择筛选结果中的全部站点。
 4. 在同一列表查看疑似接口；打开详情，结合原始请求、响应与验证建议复核。
 
-![AI Review：按站点选择分析范围](docs/images/ai-review-sites.jpg)
+![AI Review：按站点选择分析范围](.github/images/ai-review-sites.jpg)
 
 每个站点独立分析，只读取已有的 **2xx + JSON** 重放结果。尚未扫完的站点会提示扫描完成后再分析；没有符合条件的接口时不调用模型。关闭网页不会停止后台任务；停止报告服务后，未完成的任务需要手动重试。
 
@@ -88,7 +88,7 @@ uv run tracesurface serve
 
 内置目录由 [Pydantic AI](https://ai.pydantic.dev/) 提供，包含 DeepSeek、Kimi、GLM、阿里百炼、OpenAI、Anthropic、Gemini 等服务商。可以搜索模型，也可以输入目录尚未收录的型号。内置模型不需要手工填写上下文容量。
 
-![模型设置：选择服务商、模型与思考强度](docs/images/ai-model-effort.jpg)
+![模型设置：选择服务商、模型与思考强度](.github/images/ai-model-effort.jpg)
 
 有自己的兼容服务时，选择 **自定义接入**。支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 和 Gemini generateContent 四种 API 格式。填写服务地址、模型名称、API Key、上下文容量与最大输出，再勾选服务支持的思考强度。
 
@@ -97,7 +97,7 @@ uv run tracesurface serve
 <details>
 <summary>查看自定义接入示例</summary>
 
-![自定义接入：声明容量、支持的档位与实际使用的强度](docs/images/ai-model-custom.jpg)
+![自定义接入：声明容量、支持的档位与实际使用的强度](.github/images/ai-model-custom.jpg)
 
 示例地址与模型名仅用于说明表单，请按服务商提供的信息填写。
 
@@ -123,7 +123,7 @@ tracesurface scan https://vue.ruoyi.vip/login --no-auth
 
 这些接口中的许多响应虽然是 HTTP 200，正文却明确返回 `code: 401`。**发现接口、收到 200，都不等于发现漏洞。** 在这次示例中，AI 完整分析了 84 条重放结果，没有标记疑似接口。
 
-![分析进度：查看站点完成状态与接口覆盖数量](docs/images/ai-review-complete.jpg)
+![分析进度：查看站点完成状态与接口覆盖数量](.github/images/ai-review-complete.jpg)
 
 ## 常见用法
 

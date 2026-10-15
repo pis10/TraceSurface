@@ -18,7 +18,7 @@ Give TraceSurface a URL. It traces real browser requests and parses entry script
 
 For larger scans, select sites for **AI Review**. Suspected issues from every site appear in one list, with explanations and original traffic for manual verification.
 
-![Replay report: API inventory alongside the original response](docs/images/report-verification.jpg)
+![Replay report: API inventory alongside the original response](.github/images/report-verification.jpg)
 
 ## Capabilities
 
@@ -80,7 +80,7 @@ Built report assets are included. After editing the frontend, run `npm ci` and `
 3. Open **选择站点分析 (Select sites)** and select individual sites or every site matching the filter.
 4. Review suspected endpoints in one list. Open an item to inspect its original request, response, and verification suggestions.
 
-![AI Review: select sites for analysis](docs/images/ai-review-sites.jpg)
+![AI Review: select sites for analysis](.github/images/ai-review-sites.jpg)
 
 Each site is analyzed independently using the existing **2xx + JSON** replay filter. Unfinished scans are skipped until you start analysis again after completion. Sites with no eligible responses do not call the model. Closing the page keeps jobs running; stopping the report server interrupts unfinished jobs, which can be retried manually.
 
@@ -88,7 +88,7 @@ Each site is analyzed independently using the existing **2xx + JSON** replay fil
 
 The built-in catalog comes from [Pydantic AI](https://ai.pydantic.dev/) and includes DeepSeek, Kimi, GLM, Alibaba, OpenAI, Anthropic, Gemini, and other providers. Search the catalog or enter a model ID that has not yet been listed. Catalog models do not require manually declared context limits.
 
-![Model settings: provider, model, and reasoning effort](docs/images/ai-model-effort.jpg)
+![Model settings: provider, model, and reasoning effort](.github/images/ai-model-effort.jpg)
 
 Choose **自定义接入 (Custom connection)** for your own compatible service. Supported APIs are OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini generateContent. Enter the endpoint, model ID, API key, context window, and maximum output, then check the reasoning effort levels your service supports.
 
@@ -97,7 +97,7 @@ The **默认强度 (Default effort)** selector determines the effort used for an
 <details>
 <summary>Custom connection example</summary>
 
-![Custom connection: declare capacity, supported effort levels, and the selected level](docs/images/ai-model-custom.jpg)
+![Custom connection: declare capacity, supported effort levels, and the selected level](.github/images/ai-model-custom.jpg)
 
 The endpoint and model ID shown are examples. Use the values supplied by your service.
 
@@ -123,7 +123,7 @@ The captcha request provides the `/prod-api` prefix and its source location. Tra
 
 Many responses return HTTP 200 while explicitly reporting `code: 401` in the body. **Discovering an endpoint or receiving a 200 response does not establish a vulnerability.** In this example, AI reviewed all 84 eligible replay results and flagged no suspected issues.
 
-![Analysis progress: completion status and endpoint coverage](docs/images/ai-review-complete.jpg)
+![Analysis progress: completion status and endpoint coverage](.github/images/ai-review-complete.jpg)
 
 ## Common Workflows
 

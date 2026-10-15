@@ -55,7 +55,7 @@ jobs:
           PY
           build_sha="$(jq -r .headSha build-run.json)"
           git diff --exit-code "$RELEASE_TAG" "$build_sha" -- tracesurface frontend pyproject.toml uv.lock
-          git show "$RELEASE_TAG:docs/releases/$RELEASE_TAG.md" > release-notes.md
+          git show "$RELEASE_TAG:.github/release-notes/$RELEASE_TAG.md" > release-notes.md
           test -s release-notes.md
 
       - name: Download verified build artifacts

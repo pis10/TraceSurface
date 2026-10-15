@@ -120,7 +120,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          notes_file="docs/releases/$GITHUB_REF_NAME.md"
+          notes_file=".github/release-notes/$GITHUB_REF_NAME.md"
           test -s "$notes_file"
           gh release create "$GITHUB_REF_NAME" release/* \
             --verify-tag \
