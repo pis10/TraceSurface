@@ -379,7 +379,7 @@ class WorkerTests(DatabaseCase):
                         )
                         for r in payload["records"]
                     ]
-                ), {}
+                ), {"input_tokens": 120, "output_tokens": 30}
 
             ok = self.scan()
             fail = self.scan("https://fail.test")
@@ -403,6 +403,9 @@ class WorkerTests(DatabaseCase):
                 )
                 self.assertEqual(len(calls), 2)
                 self.assertTrue(all(len(p["records"]) == 1 for p in calls))
+                completed = next(j for j in jobs if j["status"] == "done")
+                self.assertEqual(completed["input_tokens"], 120)
+                self.assertEqual(completed["output_tokens"], 30)
                 self.assertEqual(repo.findings(batch, "", "", 0, 50)["total"], 1)
                 self.assertNotIn("secret key", json.dumps(jobs))
                 repo.enqueue(StartAnalysis(scan_ids=[fail], force=True), self.config())

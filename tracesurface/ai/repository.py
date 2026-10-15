@@ -203,8 +203,8 @@ def save_result(
                 "UPDATE ai_jobs SET status='done', suspected_count=?, input_tokens=?, output_tokens=?, finished_at=? WHERE id=?",
                 (
                     sum(r.suspected for r in result.results),
-                    usage.get("prompt_tokens", 0),
-                    usage.get("completion_tokens", 0),
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
                     int(time.time()),
                     job_id,
                 ),
