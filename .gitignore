@@ -8,6 +8,8 @@ wheels/
 codex_research/
 claude_research/
 research/
+docs/design/
+.vscode/
 
 .venv
 node_modules/
