@@ -10,6 +10,8 @@ from tracesurface.ai.inference import analyze_configured as analyze
 from tracesurface.ai.models import AISettings, SiteResult
 from tracesurface.storage.sqlite.queries import get_replay
 
+ANALYSIS_TIMEOUT_SECONDS = 300
+
 
 def truncate_body(text: str, limit: int) -> tuple[str, bool, int]:
     raw = text.encode("utf-8")
@@ -174,7 +176,9 @@ class AnalysisManager:
                         finished_at=int(time.time()),
                     )
                     continue
-                result, usage = await self.analyzer(payload, settings)
+                # HTTP read timeouts reset on keepalives; bound the whole analysis.
+                async with asyncio.timeout(ANALYSIS_TIMEOUT_SECONDS):
+                    result, usage = await self.analyzer(payload, settings)
                 await asyncio.to_thread(
                     repo.save_result, job["id"], result, truncated, usage
                 )

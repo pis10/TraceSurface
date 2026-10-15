@@ -307,6 +307,60 @@ class OutputTests(unittest.TestCase):
 
 
 class WorkerTests(DatabaseCase):
+    def test_total_timeout_cancels_keepalive_and_allows_manual_retry(self):
+        async def run():
+            calls = 0
+            cancelled = asyncio.Event()
+
+            async def fake(payload, settings):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    try:
+                        # Receiving periodic data must not extend the total deadline.
+                        while True:
+                            await asyncio.sleep(0.005)
+                    finally:
+                        cancelled.set()
+                return SiteResult(
+                    results=[
+                        InterfaceResult(
+                            replay_id=r["replay_id"],
+                            suspected=False,
+                            reason="login required",
+                            recommendation="",
+                        )
+                        for r in payload["records"]
+                    ]
+                ), {}
+
+            scan = self.scan()
+            self.replay(scan)
+            manager = AnalysisManager(fake)
+            await manager.start()
+            try:
+                for expected in ["failed", "done"]:
+                    batch = repo.enqueue(StartAnalysis(scan_ids=[scan]), self.config())
+                    manager.notify(batch, self.config())
+                    async with asyncio.timeout(2):
+                        while True:
+                            job = repo.jobs(batch, 0, 50)["items"][0]
+                            if job["status"] not in {"queued", "running"}:
+                                break
+                            await asyncio.sleep(0.01)
+                    self.assertEqual(job["status"], expected)
+                    self.assertEqual(repo.findings(batch, "", "", 0, 50)["total"], 0)
+                    if expected == "failed":
+                        self.assertTrue(cancelled.is_set())
+                        self.assertIn("超时", job["message"])
+                        self.assertEqual(calls, 1)
+                self.assertEqual(calls, 2)
+            finally:
+                await manager.close()
+
+        with patch("tracesurface.ai.service.ANALYSIS_TIMEOUT_SECONDS", 0.05):
+            asyncio.run(run())
+
     def test_site_isolation_empty_skip_failure_and_restart(self):
         async def run():
             calls = []
