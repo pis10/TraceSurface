@@ -12,7 +12,12 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from tracesurface.ai.catalog import EFFORTS, catalog_response, model_details
+from tracesurface.ai.catalog import (
+    EFFORTS,
+    NATIVE_EFFORTS,
+    catalog_response,
+    model_details,
+)
 from tracesurface.ai.inference import analyze_configured, create_model, test_connection
 from tracesurface.ai.models import AISettings
 from tracesurface.ai.service import safe_error
@@ -112,7 +117,6 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_effort_declarations_default_and_roundtrip(self):
         value = custom(
-            reasoning_mode="effort",
             reasoning_efforts=["low", "high", "xhigh"],
             reasoning_effort="high",
         )
@@ -125,7 +129,7 @@ class ConfigurationTests(unittest.TestCase):
             {"reasoning_efforts": ["low"]},
             {"reasoning_effort": "max"},
         ]:
-            with self.assertRaisesRegex(ValueError, "勾选"):
+            with self.assertRaisesRegex(ValueError, "支持"):
                 prepare_settings(value.model_copy(update=changes))
         with self.assertRaises(ValidationError):
             custom(reasoning_efforts=["arbitrary"])
@@ -136,13 +140,21 @@ class ConfigurationTests(unittest.TestCase):
         for changes in [
             {"context_window": None},
             {"max_output_tokens": 32000},
-            {"reasoning_mode": "budget", "thinking_budget": 8192},
             {"provider_id": "deepseek"},
             {"api_base": ""},
-            {"provider_id": "openai-responses", "reasoning_mode": "budget"},
         ]:
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 prepare_settings(custom(**changes))
+
+    def test_only_effort_is_configurable(self):
+        for field, value in [
+            ("reasoning_mode", "effort"),
+            ("thinking_budget", 2048),
+            ("output_mode", "native"),
+        ]:
+            with self.assertRaises(ValidationError):
+                custom(**{field: value})
+        self.assertEqual(prepare_settings(custom()).reasoning_effort, "")
 
     def test_credentials_are_local_scoped_and_never_returned(self):
         value = custom()
@@ -169,7 +181,7 @@ class ConfigurationTests(unittest.TestCase):
         from tracesurface.server.app import create_app
 
         path = Path(self.tmp.name, "ai-settings.json")
-        for raw in ['{"format_version":3,"api_key":"old-secret"}', "broken"]:
+        for raw in ['{"format_version":4,"api_key":"old-secret"}', "broken"]:
             path.write_text(raw)
             with TestClient(create_app()) as client:
                 response = client.get("/api/ai/settings")
@@ -195,7 +207,6 @@ class ConfigurationTests(unittest.TestCase):
                 403,
             )
             body.update(
-                reasoning_mode="effort",
                 reasoning_efforts=["low"],
                 reasoning_effort="high",
             )
@@ -300,9 +311,42 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
                             prompt_tokens=12, completion_tokens=10, total_tokens=22
                         ),
                     )
-                data = json.dumps(response).encode()
+                content_type = "application/json"
+                if (
+                    owner.status == 200
+                    and path.endswith("/messages")
+                    and body.get("stream")
+                ):
+                    message = {**response, "content": [], "stop_reason": None}
+                    events = [
+                        dict(type="message_start", message=message),
+                        dict(
+                            type="content_block_start",
+                            index=0,
+                            content_block=dict(type="text", text=""),
+                        ),
+                        dict(
+                            type="content_block_delta",
+                            index=0,
+                            delta=dict(type="text_delta", text=result),
+                        ),
+                        dict(type="content_block_stop", index=0),
+                        dict(
+                            type="message_delta",
+                            delta=dict(stop_reason="end_turn", stop_sequence=None),
+                            usage=dict(output_tokens=10),
+                        ),
+                        dict(type="message_stop"),
+                    ]
+                    data = "".join(
+                        f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                        for event in events
+                    ).encode()
+                    content_type = "text/event-stream"
+                else:
+                    data = json.dumps(response).encode()
                 self.send_response(owner.status)
-                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -338,7 +382,7 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
                 before = len(self.received)
                 result, _ = await analyze_configured(
                     {"records": [{"replay_id": 1}]},
-                    self.config(provider_id=protocol, output_mode="native"),
+                    self.config(provider_id=protocol),
                 )
                 self.assertFalse(result.results[0].suspected)
                 self.assertEqual(len(self.received), before + 1)
@@ -357,7 +401,6 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
                     self.config(
                         provider_id=protocol,
                         model="gpt-5",
-                        reasoning_mode="effort",
                         reasoning_efforts=EFFORTS,
                         reasoning_effort=effort,
                     )
@@ -370,25 +413,34 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(actual, effort)
 
-    async def test_budget_and_switches_are_explicit_protocol_settings(self):
-        for protocol, field in [("openai-chat", "thinking"), ("anthropic", "thinking")]:
-            await test_connection(
-                self.config(
-                    provider_id=protocol, reasoning_mode="budget", thinking_budget=2048
+    async def test_custom_anthropic_and_google_effort(self):
+        for protocol in ["anthropic", "google"]:
+            for effort in ["low", "high"]:
+                await test_connection(
+                    self.config(
+                        provider_id=protocol,
+                        reasoning_efforts=["low", "high"],
+                        reasoning_effort=effort,
+                    )
                 )
-            )
-            self.assertEqual(
-                self.received[-1][1][field], {"type": "enabled", "budget_tokens": 2048}
-            )
-        await test_connection(
-            self.config(
-                provider_id="google", reasoning_mode="budget", thinking_budget=2048
-            )
-        )
-        thinking = self.received[-1][1]["generationConfig"]["thinkingConfig"]
-        self.assertEqual(
-            thinking.get("thinkingBudget", thinking.get("thinking_budget")), 2048
-        )
+                body = self.received[-1][1]
+                if protocol == "anthropic":
+                    self.assertEqual(body["output_config"]["effort"], effort)
+                    self.assertEqual(body["thinking"], {"type": "adaptive"})
+                else:
+                    thinking = body["generationConfig"]["thinkingConfig"]
+                    self.assertEqual(
+                        thinking.get("thinkingLevel", thinking.get("thinking_level")),
+                        effort.upper(),
+                    )
+
+    async def test_default_omits_all_thinking_parameters(self):
+        for protocol in ["openai-chat", "openai-responses", "anthropic", "google"]:
+            await test_connection(self.config(provider_id=protocol))
+            body = self.received[-1][1]
+            for key in ["reasoning_effort", "thinking", "reasoning"]:
+                self.assertNotIn(key, body)
+            self.assertNotIn("thinkingConfig", body.get("generationConfig", {}))
 
     async def test_invalid_output_and_id_coverage_do_not_retry(self):
         for result in [
@@ -436,25 +488,68 @@ class WireTests(unittest.IsolatedAsyncioTestCase):
                 await test_connection(self.config())
         self.assertEqual(self.received, [])
 
-    async def test_native_glm_and_kimi_follow_sdk(self):
+    async def test_native_deepseek_glm_kimi_effort_reaches_wire(self):
+        for provider, model in [
+            ("deepseek", "deepseek-v4-flash"),
+            ("zai", "glm-5.2"),
+            ("moonshotai", "kimi-k2.5"),
+        ]:
+            self.assertEqual(
+                model_details(provider, model)["reasoning_efforts"], NATIVE_EFFORTS
+            )
+            for effort in ["low", "high", "xhigh"]:
+                with self.subTest(provider=provider, effort=effort):
+                    await test_connection(
+                        self.config(
+                            mode="catalog",
+                            provider_id=provider,
+                            model=model,
+                            reasoning_effort=effort,
+                        )
+                    )
+                    body = self.received[-1][1]
+                    self.assertEqual(body["reasoning_effort"], effort)
+                    self.assertNotIn("max_tokens", body)
+                    self.assertFalse(body.get("tools"))
+
+    async def test_native_glm_mapping_is_owned_by_sdk(self):
+        await test_connection(
+            self.config(
+                mode="catalog",
+                provider_id="zai",
+                model="glm-5.3",
+                reasoning_effort="xhigh",
+            )
+        )
+        self.assertEqual(self.received[-1][1]["reasoning_effort"], "max")
         await test_connection(
             self.config(
                 mode="catalog",
                 provider_id="zai",
                 model="glm-4.7",
-                reasoning_mode="disabled",
+                reasoning_effort="high",
             )
         )
-        self.assertEqual(self.received[-1][1]["thinking"]["type"], "disabled")
-        with self.assertRaisesRegex(ValueError, "思考方式"):
-            prepare_settings(
-                self.config(
-                    mode="catalog",
-                    provider_id="moonshotai",
-                    model="kimi-k2.5",
-                    reasoning_mode="disabled",
-                )
+        self.assertNotIn("reasoning_effort", self.received[-1][1])
+        self.assertEqual(self.received[-1][1]["thinking"]["type"], "enabled")
+
+    async def test_native_output_format_uses_profile_automatically(self):
+        for provider, model in [
+            ("openai", "gpt-4o"),
+            ("anthropic", "claude-sonnet-4-6"),
+            ("google", "gemini-2.5-flash"),
+        ]:
+            await test_connection(
+                self.config(mode="catalog", provider_id=provider, model=model)
             )
+            body = self.received[-1][1]
+            self.assertFalse(body.get("tools"))
+            if provider == "openai":
+                self.assertEqual(body["text"]["format"]["type"], "json_schema")
+            elif provider == "anthropic":
+                self.assertEqual(body["output_config"]["format"]["type"], "json_schema")
+            else:
+                self.assertIn("responseJsonSchema", body["generationConfig"])
 
 
 if __name__ == "__main__":

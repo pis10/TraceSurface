@@ -24,43 +24,18 @@ def model_settings(settings: AISettings) -> ModelSettings:
     options: dict[str, Any] = {"timeout": 300, "openai_store": False}
     if settings.mode == "custom":
         options["max_tokens"] = settings.max_output_tokens
-    mode, effort = settings.reasoning_mode, settings.reasoning_effort
-    if settings.mode == "catalog":
-        if mode != "default":
-            options["thinking"] = effort if mode == "effort" else mode == "enabled"
-        return cast(ModelSettings, options)
-    protocol = settings.provider_id
-    thinking = {"type": mode}
-    if mode == "budget":
-        thinking = {"type": "enabled", "budget_tokens": settings.thinking_budget}
-    if protocol == "openai-chat":
-        if mode == "effort":
+    effort = settings.reasoning_effort
+    if effort:
+        if settings.mode == "catalog":
+            # Native adapters own all model-specific translation and defaults.
+            options["thinking"] = effort
+        elif settings.provider_id in {"openai-chat", "openai-responses"}:
             options["openai_reasoning_effort"] = effort
-        elif mode != "default":
-            options["extra_body"] = {"thinking": thinking}
-    elif protocol == "openai-responses":
-        options["openai_store"] = False
-        if mode in {"effort", "disabled"}:
-            options["openai_reasoning_effort"] = effort if mode == "effort" else "none"
-    elif protocol == "anthropic":
-        if mode == "effort":
+        elif settings.provider_id == "anthropic":
             options["anthropic_effort"] = effort
             options["anthropic_thinking"] = {"type": "adaptive"}
-        elif mode == "enabled":
-            options["anthropic_thinking"] = {"type": "adaptive"}
-        elif mode != "default":
-            options["anthropic_thinking"] = thinking
-    elif protocol == "google":
-        if mode == "effort":
+        elif settings.provider_id == "google":
             options["google_thinking_config"] = {"thinking_level": effort.upper()}
-        elif mode != "default":
-            options["google_thinking_config"] = {
-                "thinking_budget": settings.thinking_budget
-                if mode == "budget"
-                else 0
-                if mode == "disabled"
-                else -1
-            }
     return cast(ModelSettings, options)
 
 
@@ -92,8 +67,8 @@ def create_model(settings: AISettings) -> Model:
             {
                 **DEFAULT_PROFILE,
                 "context_window": settings.context_window,
-                "supports_json_schema_output": settings.output_mode == "native",
-                "supports_json_object_output": settings.output_mode == "json",
+                "supports_json_schema_output": False,
+                "supports_json_object_output": False,
             },
         )
         model = cast(Any, type(model))(
@@ -132,9 +107,9 @@ async def analyze_configured(
             )
     model = create_model(settings)
     instructions = SYSTEM_PROMPT
-    if settings.output_mode == "native":
+    if model.profile.get("supports_json_schema_output"):
         output = NativeOutput(SiteResult)
-    elif settings.output_mode == "json":
+    elif model.profile.get("supports_json_object_output"):
         output = PromptedOutput(SiteResult)
     else:
         output = TextOutput(parse_text_result)

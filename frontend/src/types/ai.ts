@@ -1,6 +1,5 @@
-export type ReasoningMode = "default" | "effort" | "budget" | "enabled" | "disabled" | "adaptive";
 export type AISettings = {
-  format_version: 4;
+  format_version: 5;
   mode: "catalog" | "custom";
   provider_id: string;
   model: string;
@@ -9,20 +8,15 @@ export type AISettings = {
   ready: boolean;
   context_window: number | null;
   max_output_tokens: number | null;
-  reasoning_mode: ReasoningMode;
   reasoning_effort: string;
   reasoning_efforts: string[];
-  thinking_budget: number | null;
-  output_mode: "prompt" | "json" | "native";
   response_limit: number;
 };
 export type AISettingsInput = Omit<AISettings, "has_api_key" | "ready"> & {
   api_key: string;
 };
 export type AIModelDetails = {
-  reasoning_modes: ReasoningMode[];
   reasoning_efforts: string[];
-  output_mode: "prompt" | "json" | "native";
 };
 export type AISite = {
   id: number;

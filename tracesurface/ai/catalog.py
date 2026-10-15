@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 from importlib.metadata import version
-from typing import Any
+from typing import Any, get_args
 
 from pydantic_ai.models import (
     OpenAIChatCompatibleProvider,
@@ -10,9 +10,12 @@ from pydantic_ai.models import (
     known_model_names,
 )
 from pydantic_ai.providers import infer_provider_class
+from pydantic_ai.settings import ThinkingEffort
 from typing_inspection.introspection import get_literal_values
 
-EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"]
+NATIVE_EFFORTS = list(get_args(ThinkingEffort))
+# Custom endpoints may expose the native max level beyond the unified SDK enum.
+EFFORTS = [*NATIVE_EFFORTS, "max"]
 CUSTOM_PROTOCOLS = [
     {"id": "openai-chat", "label": "OpenAI Chat Completions"},
     {"id": "openai-responses", "label": "OpenAI Responses"},
@@ -86,29 +89,8 @@ def find_provider(provider_id: str) -> dict[str, Any]:
 def model_details(provider_id: str, model: str) -> dict[str, Any]:
     find_provider(provider_id)
     profile = infer_model_profile(f"{provider_id}:{model}")
-    modes, efforts = ["default"], []
-    if profile.get("supports_thinking"):
-        modes.append("enabled")
-        if not profile.get("thinking_always_enabled"):
-            modes.append("disabled")
-        # Only expose enumerations explicitly described by the public profile.
-        levels = profile.get("google_thinking_levels")
-        if levels:
-            efforts = [level for level in EFFORTS if level.upper() in levels]
-        elif profile.get("anthropic_supports_effort"):
-            efforts = ["low", "medium", "high"]
-            if profile.get("anthropic_supports_xhigh_effort"):
-                efforts.append("xhigh")
-        if efforts:
-            modes.append("effort")
     return {
-        "reasoning_modes": modes,
-        "reasoning_efforts": efforts,
-        "output_mode": "native"
-        if profile.get("supports_json_schema_output")
-        else "json"
-        if profile.get("supports_json_object_output")
-        else "prompt",
+        "reasoning_efforts": NATIVE_EFFORTS if profile.get("supports_thinking") else [],
     }
 
 

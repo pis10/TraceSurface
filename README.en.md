@@ -118,11 +118,11 @@ On first use, starting analysis opens model settings; saving them takes you to s
 Model settings offer two paths:
 
 - **From catalog**: providers and models come from the installed Pydantic AI package, with commonly used Chinese providers listed first. Select a model and enter its API key; no capacity fields are required. The SDK and provider handle native limits. You can also enter a model ID not yet listed.
-- **Custom connection**: choose OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or Gemini generateContent. Enter the model ID, endpoint, key, context window, and maximum output tokens. For reasoning effort, check supported levels and then choose a default. Thinking switches and token budgets are separate options. Capabilities are declared by the user, never inferred from model names.
+- **Custom connection**: choose OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or Gemini generateContent. Enter the model ID, endpoint, key, context window, and maximum output tokens. Check the supported reasoning effort levels, then choose one or leave `default` to use the service defaults. Capabilities are declared by the user, never inferred from model names.
 
 ![Custom model settings using a local mock service](docs/images/ai-model-custom.jpg)
 
-Authentication requires only an API key, with no authentication selector or cloud credential fields. Pydantic AI resolves default provider endpoints, which can be overridden. Reasoning options follow native SDK support and display effort values in English, without provider- or model-specific patches. Use custom setup for parameters the SDK does not yet expose. Actual model access and accepted parameters depend on the provider.
+Authentication requires only an API key, with no authentication selector or cloud credential fields. Pydantic AI resolves default provider endpoints, which can be overridden. Native reasoning effort uses the SDK’s unified setting and adapter mappings. Some models map multiple levels to the same behavior. Custom connections pass user-declared levels through the selected API. Output formatting is handled internally. No provider- or model-specific patches are added. Actual model access and accepted parameters depend on the provider.
 
 **Test connection** uses the current settings and validates the response format using a synthetic sample, without scan data or saving changes. Scan traffic is sent only when the user starts analysis.
 

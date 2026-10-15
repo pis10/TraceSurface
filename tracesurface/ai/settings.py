@@ -22,7 +22,7 @@ def load_settings() -> AISettings:
     try:
         if path.exists():
             raw = json.loads(path.read_text())
-            if not isinstance(raw, dict) or raw.get("format_version") != 4:
+            if not isinstance(raw, dict) or raw.get("format_version") != 5:
                 raise ValueError("incompatible")
             settings = AISettings.model_validate(raw)
         else:
@@ -79,26 +79,13 @@ def prepare_settings(value: AISettings, *, credentials: bool = False) -> AISetti
             raise ValueError("请选择支持的 API 格式")
         if not value.api_base:
             raise ValueError("请填写模型服务的 API 地址")
-        if value.provider_id == "openai-responses" and value.reasoning_mode not in {
-            "default",
-            "effort",
-            "disabled",
-        }:
-            raise ValueError("Responses 格式请选择默认设置、按强度或关闭思考")
-        if value.provider_id == "google" and value.reasoning_mode == "adaptive":
-            raise ValueError("Gemini 格式请选择默认设置、按强度或按 token 预算")
-        if value.provider_id == "anthropic" and value.output_mode == "json":
-            raise ValueError("Messages 格式请选择提示词约束或 JSON Schema")
     else:
         details = model_details(value.provider_id, value.model)
-        if value.reasoning_mode not in details["reasoning_modes"]:
-            raise ValueError("当前模型目录未提供所选思考方式，请使用自定义接入")
         value = value.model_copy(
             update={
                 "context_window": None,
                 "max_output_tokens": None,
                 "reasoning_efforts": details["reasoning_efforts"],
-                "output_mode": details["output_mode"],
             }
         )
     if value.mode == "custom":
@@ -108,16 +95,8 @@ def prepare_settings(value: AISettings, *, credentials: bool = False) -> AISetti
             raise ValueError("最大输出需小于上下文容量，给输入保留空间")
     if len(value.reasoning_efforts) != len(set(value.reasoning_efforts)):
         raise ValueError("支持的思考强度不能重复")
-    if (
-        value.reasoning_mode == "effort"
-        and value.reasoning_effort not in value.reasoning_efforts
-    ):
-        raise ValueError("请勾选支持的思考强度，并从中选择默认强度")
-    if value.reasoning_mode == "budget" and (
-        not value.thinking_budget
-        or value.thinking_budget >= (value.max_output_tokens or 0)
-    ):
-        raise ValueError("思考预算需至少 1024 tokens，且小于输出上限")
+    if value.reasoning_effort and value.reasoning_effort not in value.reasoning_efforts:
+        raise ValueError("请选择支持的思考强度，或保留 default")
     if credentials:
         value = with_saved_credentials(value)
         if not value.api_key.get_secret_value().strip():
