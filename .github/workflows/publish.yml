@@ -1,0 +1,82 @@
+name: Publish existing build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag
+        required: true
+        type: string
+      build_run_id:
+        description: Successful Release workflow run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify build and tagged application
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          gh run view "$BUILD_RUN_ID" --json conclusion,headSha,workflowName,jobs > build-run.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          run = json.loads(Path("build-run.json").read_text())
+          assert run["workflowName"] == "Release", "Unexpected build workflow"
+          assert run["conclusion"] == "success", "Build has not passed"
+          jobs = [job for job in run["jobs"] if job["name"].startswith("binary (")]
+          assert len(jobs) == 3, "Expected three platform builds"
+          for job in jobs:
+              assert job["conclusion"] == "success", job["name"]
+              checks = {step["name"]: step["conclusion"] for step in job["steps"]}
+              for name in ("Test backend", "Build binary", "Smoke test"):
+                  assert checks.get(name) == "success", (job["name"], name)
+          PY
+          build_sha="$(jq -r .headSha build-run.json)"
+          git diff --exit-code "$RELEASE_TAG" "$build_sha" -- tracesurface frontend pyproject.toml uv.lock
+          git show "$RELEASE_TAG:docs/releases/$RELEASE_TAG.md" > release-notes.md
+          test -s release-notes.md
+
+      - name: Download verified build artifacts
+        shell: bash
+        run: |
+          mkdir release
+          for asset in tracesurface-windows-x86_64.zip tracesurface-macos-arm64.tar.gz tracesurface-linux-x86_64.tar.gz; do
+            gh run download "$BUILD_RUN_ID" --name "$asset" --dir release
+            test -s "release/$asset"
+          done
+
+      - name: Create and verify checksums
+        working-directory: release
+        run: |
+          sha256sum tracesurface-* > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Publish release
+        run: |
+          gh release create "$RELEASE_TAG" release/* \
+            --verify-tag \
+            --title "$RELEASE_TAG" \
+            --notes-file release-notes.md \
+            --latest
