@@ -2,233 +2,202 @@
 
 # TraceSurface
 
-**动态浏览器追踪 × JavaScript AST 分析。动静结合，从JS中还原完整的API。**
+**从前端还原 API，用真实响应判断哪些接口值得关注。**
 
-[快速开始](#快速开始) · [实战](#实战演示扫描站点登录页) · [AI Review](#ai-review) · [核心能力](#核心能力) · [工作原理](#工作原理) · [English](https://github.com/pis10/TraceSurface/blob/main/README.en.md)
+浏览器追踪 · JavaScript AST 分析 · 无认证重放 · AI Review
 
-<p>
-  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white">
-  <a href="https://github.com/pis10/TraceSurface/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-22C55E"></a>
-</p>
+[下载](https://github.com/pis10/TraceSurface/releases/latest) · [快速开始](#快速开始) · [AI Review](#ai-review) · [实战示例](#实战示例) · [English](./README.en.md)
+
+[![Release](https://img.shields.io/github/v/release/pis10/TraceSurface)](https://github.com/pis10/TraceSurface/releases/latest)
+[![Build](https://github.com/pis10/TraceSurface/actions/workflows/release.yml/badge.svg)](https://github.com/pis10/TraceSurface/actions/workflows/release.yml)
+[![MIT](https://img.shields.io/badge/License-MIT-22C55E)](./LICENSE)
 
 </div>
 
-TraceSurface 面向渗透测试、安全评估与 API 资产盘点。从一个 URL 出发，它同时追踪浏览器运行时流量、解析 JavaScript AST。调用栈坐标将动静两端精确对齐，补全 baseURL，挖出页面从未触发的 API；无认证重放随后验证未授权与弱鉴权。
+给 TraceSurface 一个 URL，它会追踪页面真实发出的请求，解析入口脚本与懒加载代码，找回当前页面没有触发的 API。随后进行无认证重放，把接口来源、请求与响应放进同一份本地报告。
 
-**核心原则：真实请求给出 runtime 证据，静态分析负责扩展；每条 API 都有证据，每层推导都有依据。**
+接口多时，可以手动选择站点交给 **AI Review** 分析。所有站点的疑似接口集中呈现，保留判断依据和原始报文，方便逐项复核。
 
-## 实战演示：扫描站点登录页
+![重放报告：接口列表与原始响应并排查看](docs/images/report-verification.jpg)
 
-目标是若依官方 Vue 登录页，不登录后台管理，从前端代码里挖出所有后台 API：
+## 能做什么
 
-```bash
-tracesurface scan https://vue.ruoyi.vip/login
-```
-
-![若依演示站登录页](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/ruoyi-login.jpg)
-
-页面运行时只触发了 `GET /prod-api/captchaImage`，但这一条请求已经给出关键坐标。TraceSurface 将它精确对齐到 `app.js` 里的 `/captchaImage` 调用点，锁定 `/prod-api`，随后穿透 webpack 入口和懒加载 Chunk，继续还原登录后才会使用的后台 API：
-
-![扫描若依演示站](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/scan-ruoyi.png)
-
-
-| 指标 | 结果 |
+| 从发现到复核 | TraceSurface 提供的能力 |
 | --- | --- |
-| AST 调用点 | 316（去重前） |
-| 还原出的 API | 135（runtime 1 · full-url 1 · L1 124 · L2 3 · L3 3 · L4 3） |
-| 前端路由 | 发现 19，访问 19 |
-| 重放请求 | 92（2xx 88，4xx 4） |
-| 敏感信息命中 | 1 |
-| 耗时 | 46.3s |
-
-一个验证码请求，最终还原出 135 个 API。角色、菜单、部门、字典、监控、AI 会话——这些当前页面从未触发的后台接口，被一并挖了出来。
-
-![报告界面：无认证重放结果](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
-
-> [!NOTE]
-> 88 条 2xx 里，有 79 条在响应体返回了 `code: 401`。
-
-## 核心能力
-
-- **真实浏览器追踪**：捕获 Fetch/XHR、发起调用栈、脚本、路由与微前端入口，拿到页面真实运行证据。
-- **JavaScript AST 深挖**：识别 `fetch`、XHR、axios、自定义封装与网关调用，从代码中找回未触发接口。
-- **懒加载穿透**：还原 webpack / Vite Chunk 映射，主动展开业务代码，不等用户逐页点击。
-- **Stack-to-AST 对齐**：将 CDP 发起栈精确绑定源码调用点，标成 runtime，并还原 baseURL。
-- **证据驱动推导**：按 runtime / full-url / L1–L4 / no-url 标注证据强度，每个结果都能回到依据。
-- **无认证验证**：剥离 Cookie、Authorization 等认证信息重放请求，直击未授权与弱鉴权。
-- **本地报告**：发现的 API、无认证重放结果与敏感信息集中呈现。
-- **AI Review**：按站点分析重放结果，集中查看疑似未授权接口、判断依据与验证建议。
+| 发现未触发的接口 | 解析 fetch、XHR、axios、自定义封装，以及 webpack / Vite 懒加载代码 |
+| 还原完整地址 | 用浏览器请求和调用栈对齐源码位置，推导 baseURL，并保留证据层级 |
+| 查看无认证响应 | 重放请求时不加载浏览器 Cookie、Authorization 等认证头 |
+| 汇总需要关注的接口 | AI 按站点阅读重放结果，跨站点展示疑似问题与验证建议 |
+| 回到原始证据 | 在本地报告中检查 API 来源、响应正文与前端敏感信息命中 |
 
 ## 快速开始
 
-从 [GitHub Releases](https://github.com/pis10/TraceSurface/releases) 下载对应平台的压缩包，解压后在文件所在目录运行：
+从 [Releases](https://github.com/pis10/TraceSurface/releases/latest) 下载并解压对应平台的文件，无需安装 Python：
+
+| 平台 | 下载文件 |
+| --- | --- |
+| Windows x86_64 | `tracesurface-windows-x86_64.zip` |
+| macOS Apple Silicon | `tracesurface-macos-arm64.tar.gz` |
+| Linux x86_64 | `tracesurface-linux-x86_64.tar.gz` |
 
 ```bash
 # macOS / Linux
 ./tracesurface scan https://target.example
-
-# Windows PowerShell
-.\tracesurface.exe scan https://target.example
-```
-
-TraceSurface 优先使用本机 Google Chrome。未检测到 Chrome 时，首次扫描会自动下载 Chromium 到 `~/.tracesurface/browsers/`。启动本地报告：
-
-```bash
 ./tracesurface serve
 ```
 
-![启动本地报告](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-serve.png)
-
-浏览器打开 `http://127.0.0.1:8765`。
-
-只想发现 API、不执行主动重放：
-
-```bash
-./tracesurface scan https://target.example --no-replay
+```powershell
+# Windows PowerShell
+.\tracesurface.exe scan https://target.example
+.\tracesurface.exe serve
 ```
 
-<details>
-<summary>从源码安装</summary>
+打开 **http://127.0.0.1:8765** 查看报告。扫描优先使用本机 Google Chrome；没有 Chrome 时，会自动下载 Chromium。
 
-要求 Python 3.12 和 [uv](https://docs.astral.sh/uv/)。
+> [!IMPORTANT]
+> **从旧版升级到 v1.4：数据与 AI 配置格式不兼容，不提供迁移。** 请保留旧目录，并通过 `TRACESURFACE_HOME` 指定一个新目录后重新扫描。程序不会自动转换或删除旧数据。
+
+<details>
+<summary>指定新的数据目录</summary>
+
+macOS / Linux，在同一终端中运行扫描与报告服务：
+
+```bash
+export TRACESURFACE_HOME="$HOME/.tracesurface-v1.4"
+./tracesurface scan https://target.example
+./tracesurface serve
+```
+
+Windows PowerShell：
+
+```powershell
+$env:TRACESURFACE_HOME = "$env:USERPROFILE\.tracesurface-v1.4"
+.\tracesurface.exe scan https://target.example
+.\tracesurface.exe serve
+```
+
+</details>
+
+<details>
+<summary>从源码运行</summary>
+
+需要 Python 3.12+ 和 [uv](https://docs.astral.sh/uv/)。
 
 ```bash
 git clone https://github.com/pis10/TraceSurface.git
 cd TraceSurface
-
-uv sync
+uv sync --locked
+uv run tracesurface scan https://target.example
+uv run tracesurface serve
 ```
 
-之后用 `uv run tracesurface ...` 运行。
+仓库包含报告页面的构建产物。修改前端后，在 `frontend/` 中运行 `npm ci` 和 `npm run build`。
 
 </details>
 
 ## AI Review
 
-扫描完成后，打开本地报告的 **AI Review**，点击 **选择站点分析**，再选择要分析的站点。
-首次使用会先打开模型设置，保存后继续选择站点。
+**扫描由工具完成，分析由你决定何时开始。** 不需要为每个站点单独打开一份报告。
 
-- 支持勾选站点，或分析筛选出的全部站点。
-- 直接使用现有的 **2xx + JSON** 重放筛选，每个站点独立调用一次模型。
-- 所有站点的疑似接口集中展示；点击可查看判断依据、验证建议和原始报文，不设风险等级。
-- 扫描中的站点会跳过，完成后需手动发起。没有符合条件的响应时不调用模型。
-- 关闭网页后后台任务继续；停止报告服务会中断未完成任务，可手动重试。
+1. 打开 **AI Review → 模型设置**，选择服务商与模型，填写 API Key。
+2. 点击 **测试连接**，确认模型能够返回所需的分析结果，再保存设置。
+3. 点击 **选择站点分析**，勾选站点，或选择筛选结果中的全部站点。
+4. 在同一列表查看疑似接口；打开详情，结合原始请求、响应与验证建议复核。
 
-![AI Review：选择站点](docs/images/ai-review-sites.jpg)
+![AI Review：按站点选择分析范围](docs/images/ai-review-sites.jpg)
 
-模型设置提供两种方式：
+每个站点独立分析，只读取已有的 **2xx + JSON** 重放结果。尚未扫完的站点会提示扫描完成后再分析；没有符合条件的接口时不调用模型。关闭网页不会停止后台任务；停止报告服务后，未完成的任务需要手动重试。
 
-- **从目录选择**：服务商与模型读取安装的 Pydantic AI 包，国内常用服务商优先排列。选择模型、填写 API Key 即可使用，不需要填写容量；调用参数由 SDK 和服务商处理。模型选择框也可输入尚未收录的型号。
-- **自定义接入**：选择 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 或 Gemini generateContent 格式，填写模型名称、API 地址、密钥、上下文容量与最大输出。先勾选服务支持的英文思考强度，再选择默认强度；也可以保留 `default`，使用服务默认设置。能力由用户声明，不根据模型名称推测。
+### 接入你的模型
 
-![自定义模型设置（本地模拟服务）](docs/images/ai-model-custom.jpg)
+内置目录由 [Pydantic AI](https://ai.pydantic.dev/) 提供，包含 DeepSeek、Kimi、GLM、阿里百炼、OpenAI、Anthropic、Gemini 等服务商。可以搜索模型，也可以输入目录尚未收录的型号。内置模型不需要手工填写上下文容量。
 
-认证只需 API Key，无需选择认证方式或填写云凭据。目录中的默认服务地址由 Pydantic AI 处理，也可以更换地址。内置模型的思考强度使用 SDK 统一参数，由 SDK 转换；不同模型可能合并部分档位，不保证每档都有不同效果。自定义接入按用户声明传递强度，结果格式由程序处理，无需配置。不为单独厂商或型号添加补丁；服务端是否接受参数及模型是否对账户开放，以实际调用为准。
+![模型设置：选择服务商、模型与思考强度](docs/images/ai-model-effort.jpg)
 
-点击 **测试连接**，使用当前配置验证连接及结果格式；测试只发送虚构样例，不包含扫描数据，也不会保存未提交的设置。请求和响应只在用户发起分析后发送至配置的服务。
+有自己的兼容服务时，选择 **自定义接入**。支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 和 Gemini generateContent 四种 API 格式。填写服务地址、模型名称、API Key、上下文容量与最大输出，再勾选服务支持的思考强度。
 
-密钥保存在本机数据目录的 `ai-settings.json`，不回传页面、不写入批次记录。切换服务商、API 格式或地址时，不复用旧密钥。自定义容量用于本地输入预算检查，不会改变服务端实际限制。
+页面中的“默认强度”就是分析实际使用的档位：例如勾选 `low / high / max` 后选中 `high`，分析便使用 `high`。`default` 表示不指定强度，由服务决定；内置模型的档位转换由 SDK 处理，不同型号的实际效果可能不同。
 
-每条响应正文默认最多提交 **8 KiB**，超出部分截断并标记，不修改已保存的原始响应。输出会校验格式及接口编号，遗漏、重复、输出截断或调用失败均不会算作分析成功。整站输入超限时明确报错，不拆分或静默丢弃接口。
+<details>
+<summary>查看自定义接入示例</summary>
 
-AI 给出的是人工复核线索。未展示的接口可能被判断为非疑似，也可能未分析、被跳过或分析失败；请结合任务详情查看。
+![自定义接入：声明容量、支持的档位与实际使用的强度](docs/images/ai-model-custom.jpg)
 
-> [!IMPORTANT]
-> 本次为不兼容的数据及配置格式更新，不提供兼容或迁移。遇到旧数据目录时会停止并提示更换目录，不会自动改写旧数据。请通过 `TRACESURFACE_HOME` 使用新的目录。重新扫描同一站点仍会替换旧扫描及其关联的 AI 结果。
+示例地址与模型名仅用于说明表单，请按服务商提供的信息填写。
+
+</details>
+
+扫描与重放不依赖 AI。只有主动发起分析，扫描报文才会发送至所配置的模型服务；连接测试只发送虚构样例。API Key 保存在本机，不回传页面。AI 结论用于辅助人工复核；没有疑似结果不代表站点不存在漏洞，任务详情会显示分析是否完成。
+
+## 实战示例
+
+以若依公开演示站的登录页为例，无需登录后台即可从前端代码发现接口：
+
+```bash
+tracesurface scan https://vue.ruoyi.vip/login --no-auth
+```
+
+登录页的验证码请求提供了 `/prod-api` 前缀与调用位置。TraceSurface 将运行时请求对齐到 JavaScript 调用点，再继续展开业务代码，发现角色、菜单、部门、字典和监控等接口。
+
+| 示例扫描 | 数量 |
+| --- | ---: |
+| AST 调用点（去重前） | 316 |
+| 重放请求 | 92 |
+| 符合 2xx + JSON 的响应 | 84 |
+
+这些接口中的许多响应虽然是 HTTP 200，正文却明确返回 `code: 401`。**发现接口、收到 200，都不等于发现漏洞。** 在这次示例中，AI 完整分析了 84 条重放结果，没有标记疑似接口。
+
+![分析进度：查看站点完成状态与接口覆盖数量](docs/images/ai-review-complete.jpg)
 
 ## 常见用法
 
 | 场景 | 命令 |
 | --- | --- |
-| 扫描单个站点 | `tracesurface scan https://target.example` |
-| 只发现、不重放 | `tracesurface scan https://target.example --no-replay` |
-| 批量扫描 | `tracesurface scan -f targets.txt -s 10` |
-| 打开浏览器手动触发页面 | `tracesurface scan https://target.example --headed --wait-ms 15000` |
-| 保存登录态 | `tracesurface login https://sso.example.com` |
-| 强制不加载登录态 | `tracesurface scan https://target.example --no-auth` |
-| 启动报告 | `tracesurface serve` |
+| 只发现接口，不主动重放 | `tracesurface scan https://target.example --no-replay` |
+| 批量扫描，最多同时处理 10 个站点 | `tracesurface scan -f targets.txt -s 10` |
+| 显示浏览器，手动操作页面 | `tracesurface scan https://target.example --headed --wait-ms 15000` |
+| 保存浏览器登录态供采集使用 | `tracesurface login https://sso.example.com` |
+| 采集时也不使用已保存的登录态 | `tracesurface scan https://target.example --no-auth` |
+| 启动本地报告 | `tracesurface serve` |
 
-`login` 会把 Playwright `storage_state` 和可选的 `sessionStorage` 保存到 `~/.tracesurface/auth.json`，后续扫描默认自动加载。
+运行 `tracesurface scan --help` 查看完整参数。数据默认保存在 `~/.tracesurface/`；重新扫描同一站点会替换该站点的旧扫描及关联的 AI 结果。
 
-运行 `tracesurface scan --help` 查看 `scan` 的完整参数。
-
-## 如何解读未授权结果
-
-TraceSurface 会重放两类请求：从前端源码推导出的 API 候选，以及浏览器捕获到的 Fetch/XHR 请求。
-
-重放保留 URL、method、body 和 Content-Type，但不带浏览器里的 Cookie、Authorization 等认证头——拿到的就是未授权视角下的真实响应。默认只发送 GET 和 POST；其他方法需显式使用 `--allow-destructive`。
-
-判断结果时记住一点：HTTP 2xx 不等于业务成功。不少接口对未授权请求也返回 200，只是在响应体里给 `code: 401`。结合响应内容和权限边界下结论。
-
-## 报告视图
-
-| 视图 | 用途 |
-| --- | --- |
-| **APIs** | 从前端还原出的接口清单，包含浏览器真实打过的请求 |
-| **Replays** | 无认证重放的请求、响应、状态码与命中结果 |
-| **Secrets** | 前端产物中的敏感信息命中与上下文 |
-| **AI Review** | 跨站点汇总疑似接口，查看依据和原始报文 |
+报告分为 **APIs**（接口与来源）、**Replays**（重放报文）、**Secrets**（前端敏感信息命中）和 **AI Review**（疑似接口汇总）。
 
 ## 工作原理
 
-TraceSurface 把运行时流量与静态调用点合成一条证据链：浏览器锁定真实 URL，AST 展开未触发接口，调用栈坐标负责把二者钉在一起。
-
-### Stack-to-AST Alignment
-
-每条浏览器请求都带着发起脚本、行号与列号；每个 AST 调用点也有对应的 source span。坐标一旦命中，真实请求与源码调用点就被确认为同一条 API 证据。
-
 ```mermaid
 flowchart LR
-    A["CDP<br/>真实请求 + 发起调用栈"] --> C["坐标对齐<br/>script URL · line · column"]
-    B["tree-sitter<br/>API 调用点 + source span"] --> C
-    C --> D["runtime<br/>运行时请求 ↔ 源码调用点"]
-    D --> E["Evidence-driven<br/>API Surface"]
+    A[浏览器请求与调用栈] --> C[对齐源码调用点]
+    B[JavaScript AST 与懒加载代码] --> C
+    C --> D[还原接口与来源证据]
+    D --> E[无认证重放]
+    E --> F[本地报告]
+    F --> G[手动选择站点]
+    G --> H[AI Review]
 ```
 
-1. CDP 记录 Fetch/XHR 的脚本、行号和列号。
-2. tree-sitter 提取 API 调用点及源码位置。
-3. 坐标命中后，请求标成 runtime，并可为其他调用点提供 baseURL。
-
-### 证据层级
-
-每条 API 落在一条证据轴上。runtime 是浏览器实际打到的请求；其余按 URL 从哪里来、把握有多强分层。
+<details>
+<summary>接口的证据层级</summary>
 
 | 层级 | 含义 |
 | --- | --- |
-| **runtime** | 浏览器真实打过这条请求 |
-| **full-url** | 源码里已经是完整 URL，不用拼 |
-| **L1** | 路径能唯一绑到一个已知 base |
+| **runtime** | 浏览器实际发出过请求 |
+| **full-url** | 源码中已有完整 URL |
+| **L1** | 路径可唯一绑定到已知 baseURL |
 | **L2** | 通过 client 关系或扇出绑定 |
-| **L3** | 使用本轮扫到的全局 base |
-| **L4** | 仅用目标站点 origin 兜底 |
-| **no-url** | 找到了调用点，但还拼不出完整 URL |
+| **L3** | 使用本轮扫描发现的全局 baseURL |
+| **L4** | 使用目标站点 origin 兜底 |
+| **no-url** | 发现调用点，但尚未还原出完整 URL |
 
-## 数据目录
+证据层级描述接口地址的来源与推导依据，不表示漏洞风险等级。
 
-数据默认保存在 `~/.tracesurface/`，可以通过 `TRACESURFACE_HOME` 指定其他目录。
+</details>
 
-```text
-~/.tracesurface/
-├── tracesurface.db
-├── responses/
-├── sources/
-├── logs/
-├── browsers/       # 备用 Chromium（按需）
-└── auth.json
-```
+基于 Python、Playwright/CDP、tree-sitter、SQLite、FastAPI、React 与 Pydantic AI 构建。
 
-## 技术栈
+## 使用范围
 
-- Python、Typer、asyncio、httpx
-- Playwright、Chrome DevTools Protocol
-- tree-sitter、tree-sitter-javascript
-- SQLite、FastAPI、Uvicorn
-- React、TypeScript、Vite、Tailwind CSS
+仅扫描你拥有或已获授权的目标。默认重放会主动发送 GET 和 POST；其他方法需要显式启用 `--allow-destructive`。URL 或请求体本身可能携带凭据，复核时仍需检查实际报文。
 
-## 安全与授权
-
-TraceSurface 只应用于你拥有或已获得明确授权的目标。扫描默认会主动发送 GET 和 POST；`--allow-destructive` 会放行其他方法。不需要验证时请使用 `--no-replay`。
-
-## License
-
-[MIT](./LICENSE)
+[MIT License](./LICENSE)

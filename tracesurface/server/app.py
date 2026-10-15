@@ -26,8 +26,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # LiteLLM installs logging hooks while importing. Complete initialization
-        # before requests can log against a partially imported SDK.
+        # Load the provider catalog before accepting report requests.
         model_catalog()
         app.state.ai_manager = AnalysisManager()
         await app.state.ai_manager.start()

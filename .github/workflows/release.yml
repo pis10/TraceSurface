@@ -53,11 +53,9 @@ jobs:
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            build/nuitka/tracesurface.exe --version
-            build/nuitka/tracesurface.exe --help
+            uv run python scripts/smoke-binary.py build/nuitka/tracesurface.exe
           else
-            build/nuitka/tracesurface --version
-            build/nuitka/tracesurface --help
+            uv run python scripts/smoke-binary.py build/nuitka/tracesurface
           fi
 
       - name: Package Windows
@@ -101,13 +99,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          prev_tag="$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)"
-          if [ -n "$prev_tag" ]; then
-            git log --no-merges --pretty='- %s' "$prev_tag..$GITHUB_REF_NAME" | grep -v '^- Ship v' > notes.md || true
-          else
-            : > notes.md
-          fi
+          notes_file="docs/releases/$GITHUB_REF_NAME.md"
+          test -s "$notes_file"
           gh release create "$GITHUB_REF_NAME" release/* \
             --verify-tag \
             --title "$GITHUB_REF_NAME" \
-            --notes-file notes.md
+            --notes-file "$notes_file"

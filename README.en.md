@@ -2,232 +2,202 @@
 
 # TraceSurface
 
-**Dynamic browser tracing × JavaScript AST analysis. Reconstruct the complete API surface from JavaScript.**
+**Recover APIs from frontend code. Review what their responses actually reveal.**
 
-[Quick Start](#quick-start) · [Case Study](#case-study-scanning-a-login-page) · [AI Review](#ai-review) · [Capabilities](#capabilities) · [How It Works](#how-it-works) · [简体中文](https://github.com/pis10/TraceSurface/blob/main/README.md)
+Browser tracing · JavaScript AST analysis · Unauthenticated replay · AI Review
 
-<p>
-  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white">
-  <a href="https://github.com/pis10/TraceSurface/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-22C55E"></a>
-</p>
+[Download](https://github.com/pis10/TraceSurface/releases/latest) · [Quick Start](#quick-start) · [AI Review](#ai-review) · [Example](#example) · [简体中文](./README.md)
+
+[![Release](https://img.shields.io/github/v/release/pis10/TraceSurface)](https://github.com/pis10/TraceSurface/releases/latest)
+[![Build](https://github.com/pis10/TraceSurface/actions/workflows/release.yml/badge.svg)](https://github.com/pis10/TraceSurface/actions/workflows/release.yml)
+[![MIT](https://img.shields.io/badge/License-MIT-22C55E)](./LICENSE)
 
 </div>
 
-TraceSurface is built for penetration testing, security assessment, and API inventory. Starting from one URL, it traces runtime traffic in a real browser while parsing JavaScript ASTs across entry scripts, lazy chunks, and micro-frontends. Initiator coordinates pin real requests back to source call sites, recovering base URLs and complete endpoints. TraceSurface then strips browser credentials and replays those requests to expose missing or weak authorization.
+Give TraceSurface a URL. It traces real browser requests and parses entry scripts and lazy chunks to recover APIs the current page never called. It then replays requests without browser authentication and brings their source evidence, requests, and responses into one local report.
 
-**Core principle: runtime requests provide evidence; static analysis expands. Every API carries evidence, and every grade has a reason.**
+For larger scans, select sites for **AI Review**. Suspected issues from every site appear in one list, with explanations and original traffic for manual verification.
 
-## Case Study: Scanning a Login Page
-
-The target is the official RuoYi Vue login page. Without logging into the admin UI, recover the backend APIs from the frontend code:
-
-```bash
-tracesurface scan https://vue.ruoyi.vip/login
-```
-
-![RuoYi demo login page](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/ruoyi-login.jpg)
-
-The page triggers only `GET /prod-api/captchaImage`, but that single request provides the decisive coordinates. TraceSurface aligns it precisely with the `/captchaImage` call site in `app.js`, establishes `/prod-api` as the prefix, then traverses the webpack entry and lazy chunks to recover APIs used only after login:
-
-![Scan of the RuoYi demo](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/scan-ruoyi.png)
-
-| Metric | Result |
-| --- | --- |
-| AST call sites | 316 (before dedup) |
-| Recovered APIs | 135 (runtime 1 · full-url 1 · L1 124 · L2 3 · L3 3 · L4 3) |
-| Frontend routes | 19 found, 19 visited |
-| Requests replayed | 92 (88 2xx, 4 4xx) |
-| Secret matches | 1 |
-| Duration | 46.3s |
-
-One captcha request becomes 135 APIs. Roles, menus, departments, dictionaries, monitoring, AI conversations — backend endpoints never triggered by the current page emerge directly from the frontend code.
-
-![Report: unauthenticated replay results](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/report-verification.jpg)
-
-> [!NOTE]
-> 79 of the 88 2xx responses returned `code: 401` in the body.
+![Replay report: API inventory alongside the original response](docs/images/report-verification.jpg)
 
 ## Capabilities
 
-- **Real browser tracing**: captures Fetch/XHR, initiator stacks, scripts, routes, and micro-frontend entries as runtime evidence.
-- **JavaScript AST extraction**: recognizes `fetch`, XHR, axios, custom wrappers, and gateway calls to recover endpoints the page never triggered.
-- **Lazy-chunk traversal**: reconstructs webpack / Vite chunk maps and expands business code without waiting for manual navigation.
-- **Stack-to-AST alignment**: binds CDP initiator coordinates to source call sites, marks them runtime, and recovers base URLs.
-- **Evidence-driven inference**: grades each API as runtime / full-url / L1–L4 / no-url, with every result traceable to evidence.
-- **Credential-free verification**: strips Cookie, Authorization, and other credentials before replaying requests to expose authorization gaps.
-- **Local report**: discovered APIs, unauthenticated replay results, and secret matches in one place.
-- **AI Review**: review replay results by site, with suspected authorization issues, reasoning, and verification suggestions in one list.
+| From discovery to review | What TraceSurface provides |
+| --- | --- |
+| Find untriggered endpoints | Parse fetch, XHR, axios, custom wrappers, and webpack / Vite lazy chunks |
+| Recover complete URLs | Align browser requests and initiator stacks with source locations to infer base URLs and retain evidence grades |
+| Inspect unauthenticated responses | Replay without loading browser Cookie, Authorization, or other authentication headers |
+| Focus review on suspected issues | Read replay results by site with AI and collect findings and verification suggestions in one view |
+| Inspect the evidence | Explore API origins, response bodies, and sensitive information found in frontend assets |
 
 ## Quick Start
 
-Download the archive for your platform from [GitHub Releases](https://github.com/pis10/TraceSurface/releases). Extract it and run the binary from its directory:
+Download and extract the archive for your platform from [Releases](https://github.com/pis10/TraceSurface/releases/latest). Python is not required:
+
+| Platform | Archive |
+| --- | --- |
+| Windows x86_64 | `tracesurface-windows-x86_64.zip` |
+| macOS Apple Silicon | `tracesurface-macos-arm64.tar.gz` |
+| Linux x86_64 | `tracesurface-linux-x86_64.tar.gz` |
 
 ```bash
 # macOS / Linux
 ./tracesurface scan https://target.example
-
-# Windows PowerShell
-.\tracesurface.exe scan https://target.example
-```
-
-TraceSurface prefers the locally installed Google Chrome. When Chrome is unavailable, the first scan downloads Chromium to `~/.tracesurface/browsers/`. Start the local report:
-
-```bash
 ./tracesurface serve
 ```
 
-![Local report server](https://raw.githubusercontent.com/pis10/TraceSurface/main/docs/images/cli-serve.png)
-
-Open `http://127.0.0.1:8765` in your browser.
-
-For discovery without active replay:
-
-```bash
-./tracesurface scan https://target.example --no-replay
+```powershell
+# Windows PowerShell
+.\tracesurface.exe scan https://target.example
+.\tracesurface.exe serve
 ```
 
-<details>
-<summary>Install from source</summary>
+Open **http://127.0.0.1:8765**. TraceSurface uses your installed Google Chrome when available, or downloads Chromium on the first scan.
 
-Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
+> [!IMPORTANT]
+> **Upgrading to v1.4: older data and AI configuration formats are incompatible. No migration is provided.** Keep your old directory and select a fresh one with `TRACESURFACE_HOME`, then rescan. Existing data is never converted or deleted automatically.
+
+<details>
+<summary>Use a new data directory</summary>
+
+macOS / Linux, run both scanning and the report service in the same terminal:
+
+```bash
+export TRACESURFACE_HOME="$HOME/.tracesurface-v1.4"
+./tracesurface scan https://target.example
+./tracesurface serve
+```
+
+Windows PowerShell:
+
+```powershell
+$env:TRACESURFACE_HOME = "$env:USERPROFILE\.tracesurface-v1.4"
+.\tracesurface.exe scan https://target.example
+.\tracesurface.exe serve
+```
+
+</details>
+
+<details>
+<summary>Run from source</summary>
+
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/pis10/TraceSurface.git
 cd TraceSurface
-
-uv sync
+uv sync --locked
+uv run tracesurface scan https://target.example
+uv run tracesurface serve
 ```
 
-Then run everything with `uv run tracesurface ...`.
+Built report assets are included. After editing the frontend, run `npm ci` and `npm run build` inside `frontend/`.
 
 </details>
 
 ## AI Review
 
-After a scan, open **AI Review** in the local report, configure a model, select sites, and start analysis manually.
-On first use, starting analysis opens model settings; saving them takes you to site selection.
+**Scan first. Choose when and what to analyze.** Review multiple sites without opening a separate report for each one.
 
-- Select individual sites or every site matching the site filter, across all pages.
-- Reuse the existing **2xx + JSON** replay filter. Each site is reviewed in one independent model call.
-- Suspected issues from all sites appear in one list, with reasons, verification suggestions, and the original request/response. There are no severity tiers.
-- Unfinished scans are skipped; start analysis again after scanning finishes. Sites with no eligible responses do not call the model.
-- Jobs continue when the browser closes. Stopping the report server interrupts unfinished jobs; retry them manually.
+1. Open **AI Review → 模型设置 (Model settings)**, select a provider and model, and enter an API key.
+2. Use **测试连接 (Test connection)** to verify the connection and result format, then save.
+3. Open **选择站点分析 (Select sites)** and select individual sites or every site matching the filter.
+4. Review suspected endpoints in one list. Open an item to inspect its original request, response, and verification suggestions.
 
-![AI Review: site selection](docs/images/ai-review-sites.jpg)
+![AI Review: select sites for analysis](docs/images/ai-review-sites.jpg)
 
-Model settings offer two paths:
+Each site is analyzed independently using the existing **2xx + JSON** replay filter. Unfinished scans are skipped until you start analysis again after completion. Sites with no eligible responses do not call the model. Closing the page keeps jobs running; stopping the report server interrupts unfinished jobs, which can be retried manually.
 
-- **From catalog**: providers and models come from the installed Pydantic AI package, with commonly used Chinese providers listed first. Select a model and enter its API key; no capacity fields are required. The SDK and provider handle native limits. You can also enter a model ID not yet listed.
-- **Custom connection**: choose OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or Gemini generateContent. Enter the model ID, endpoint, key, context window, and maximum output tokens. Check the supported reasoning effort levels, then choose one or leave `default` to use the service defaults. Capabilities are declared by the user, never inferred from model names.
+### Connect your model
 
-![Custom model settings using a local mock service](docs/images/ai-model-custom.jpg)
+The built-in catalog comes from [Pydantic AI](https://ai.pydantic.dev/) and includes DeepSeek, Kimi, GLM, Alibaba, OpenAI, Anthropic, Gemini, and other providers. Search the catalog or enter a model ID that has not yet been listed. Catalog models do not require manually declared context limits.
 
-Authentication requires only an API key, with no authentication selector or cloud credential fields. Pydantic AI resolves default provider endpoints, which can be overridden. Native reasoning effort uses the SDK’s unified setting and adapter mappings. Some models map multiple levels to the same behavior. Custom connections pass user-declared levels through the selected API. Output formatting is handled internally. No provider- or model-specific patches are added. Actual model access and accepted parameters depend on the provider.
+![Model settings: provider, model, and reasoning effort](docs/images/ai-model-effort.jpg)
 
-**Test connection** uses the current settings and validates the response format using a synthetic sample, without scan data or saving changes. Scan traffic is sent only when the user starts analysis.
+Choose **自定义接入 (Custom connection)** for your own compatible service. Supported APIs are OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini generateContent. Enter the endpoint, model ID, API key, context window, and maximum output, then check the reasoning effort levels your service supports.
 
-API keys are stored locally in `ai-settings.json`, never returned to the browser or included in batch records. Changing the provider, API format, or endpoint does not reuse the previous key. Custom capacity declarations control local input budgeting; they cannot expand the server's actual context window.
+The **默认强度 (Default effort)** selector determines the effort used for analysis. For example, checking `low / high / max` and selecting `high` sends `high` for each analysis. `default` leaves effort unspecified so the service decides. Catalog models use SDK mappings; the effect of each level can vary by model.
 
-Response bodies are capped at **8 KiB each** by default, with truncation explicitly marked. Stored original responses are unchanged. Results must contain exactly one valid judgment per submitted replay ID. Invalid, incomplete, or failed responses are never recorded as successful reviews. Oversized site inputs fail explicitly instead of being split or silently dropping records.
+<details>
+<summary>Custom connection example</summary>
 
-Findings are suggestions for manual review. An absent finding may mean a negative judgment, an unreviewed record, a skipped site, or a failed analysis; consult task details for coverage.
+![Custom connection: declare capacity, supported effort levels, and the selected level](docs/images/ai-model-custom.jpg)
 
-> [!IMPORTANT]
-> This release changes the data and configuration formats without backward compatibility or migration. Older data directories are rejected with instructions to choose a fresh `TRACESURFACE_HOME`; existing data is not rewritten. Rescanning a site still replaces its previous scan and associated AI results.
+The endpoint and model ID shown are examples. Use the values supplied by your service.
+
+</details>
+
+Scanning and replay do not require AI. Scan traffic is sent to your configured model service only when you start analysis; connection tests use synthetic samples. API keys are stored locally and are not returned to the page. AI findings are leads for manual review. An empty findings list does not prove a site is secure; task details show whether analysis completed.
+
+## Example
+
+Scan the public RuoYi demo login page to discover frontend API references without logging into the admin interface:
+
+```bash
+tracesurface scan https://vue.ruoyi.vip/login --no-auth
+```
+
+The captcha request provides the `/prod-api` prefix and its source location. TraceSurface aligns the runtime request with a JavaScript call site, then expands the business code to find role, menu, department, dictionary, and monitoring endpoints.
+
+| Example scan | Count |
+| --- | ---: |
+| AST call sites, before deduplication | 316 |
+| Requests replayed | 92 |
+| Responses matching 2xx + JSON | 84 |
+
+Many responses return HTTP 200 while explicitly reporting `code: 401` in the body. **Discovering an endpoint or receiving a 200 response does not establish a vulnerability.** In this example, AI reviewed all 84 eligible replay results and flagged no suspected issues.
+
+![Analysis progress: completion status and endpoint coverage](docs/images/ai-review-complete.jpg)
 
 ## Common Workflows
 
-| Scenario | Command |
+| Task | Command |
 | --- | --- |
-| Scan one target | `tracesurface scan https://target.example` |
-| Discover without replay | `tracesurface scan https://target.example --no-replay` |
-| Scan a target list | `tracesurface scan -f targets.txt -s 10` |
+| Discover APIs without active replay | `tracesurface scan https://target.example --no-replay` |
+| Scan a list with up to 10 sites at once | `tracesurface scan -f targets.txt -s 10` |
 | Interact with a visible browser | `tracesurface scan https://target.example --headed --wait-ms 15000` |
-| Save authentication state | `tracesurface login https://sso.example.com` |
-| Disable stored authentication | `tracesurface scan https://target.example --no-auth` |
-| Start the report | `tracesurface serve` |
+| Save browser authentication for collection | `tracesurface login https://sso.example.com` |
+| Collect without saved authentication | `tracesurface scan https://target.example --no-auth` |
+| Start the local report | `tracesurface serve` |
 
-`login` stores Playwright `storage_state` and optional `sessionStorage` in `~/.tracesurface/auth.json`. Later scans load it automatically.
+Run `tracesurface scan --help` for all options. Data is stored in `~/.tracesurface/` by default. Rescanning a site replaces its previous scan and associated AI results.
 
-Run `tracesurface scan --help` for the complete option list.
-
-## Interpreting Unauthorized-Access Results
-
-TraceSurface replays two kinds of requests: API candidates inferred from frontend source, and Fetch/XHR requests captured by the browser.
-
-Replay keeps the URL, method, body, and Content-Type, but drops the browser's Cookie, Authorization, and other auth headers — what you get back is the unauthenticated view of the API. GET and POST are enabled by default; other methods require `--allow-destructive`.
-
-One thing to remember when reading results: HTTP 2xx does not imply business success. Many endpoints answer unauthenticated requests with 200 and `code: 401` in the body. Draw conclusions from the response content and the intended authorization boundary.
-
-## Report Views
-
-| View | Purpose |
-| --- | --- |
-| **APIs** | Frontend-derived API inventory, including real browser requests |
-| **Replays** | Unauthenticated replay requests, responses, status codes, and matches |
-| **Secrets** | Sensitive information found in frontend artifacts, with context |
-| **AI Review** | Suspected interfaces across sites, with evidence and original traffic |
+The report has four views: **APIs** for endpoints and source evidence, **Replays** for replay traffic, **Secrets** for frontend sensitive-information matches, and **AI Review** for suspected issues.
 
 ## How It Works
 
-TraceSurface fuses runtime traffic and static call sites into one evidence chain: the browser pins down real URLs, the AST expands untriggered endpoints, and initiator coordinates bind the two together.
-
-### Stack-to-AST Alignment
-
-Every browser request carries its initiating script, line, and column; every AST call site has a matching source span. Once the coordinates hit, the runtime request and source call site become one confirmed API record.
-
 ```mermaid
 flowchart LR
-    A["CDP<br/>real request + initiator stack"] --> C["Coordinate alignment<br/>script URL · line · column"]
-    B["tree-sitter<br/>API call site + source span"] --> C
-    C --> D["runtime<br/>runtime request ↔ source call site"]
-    D --> E["Evidence-driven<br/>API Surface"]
+    A[Browser requests and initiator stacks] --> C[Align source call sites]
+    B[JavaScript AST and lazy chunks] --> C
+    C --> D[Recover endpoints and source evidence]
+    D --> E[Unauthenticated replay]
+    E --> F[Local report]
+    F --> G[Select sites manually]
+    G --> H[AI Review]
 ```
 
-1. CDP records the script, line, and column for Fetch/XHR requests.
-2. tree-sitter extracts API call sites and source locations.
-3. A coordinate match marks the request as runtime and can provide a base URL for other call sites.
-
-### Evidence Grades
-
-Every API sits on one evidence axis. runtime is a request the browser actually made; the rest describe where the URL came from and how strongly it is bound.
+<details>
+<summary>API evidence grades</summary>
 
 | Grade | Meaning |
 | --- | --- |
-| **runtime** | The browser actually issued this request |
-| **full-url** | The source already contains a complete URL |
-| **L1** | The path binds uniquely to a known base |
-| **L2** | Bound through a client relationship or fan-out |
-| **L3** | Uses a base discovered in this scan |
+| **runtime** | The browser issued this request |
+| **full-url** | Source code contains a complete URL |
+| **L1** | A path binds uniquely to a known base URL |
+| **L2** | Bound through client relationships or fan-out |
+| **L3** | Uses a global base URL discovered in the scan |
 | **L4** | Falls back to the target origin |
-| **no-url** | A call site exists, but no complete URL can be built |
+| **no-url** | A call site exists, but a complete URL is not yet available |
 
-## Data Directory
+These grades describe URL evidence and inference, not vulnerability severity.
 
-Data is stored in `~/.tracesurface/` by default. Set `TRACESURFACE_HOME` to use another location.
+</details>
 
-```text
-~/.tracesurface/
-├── tracesurface.db
-├── responses/
-├── sources/
-├── logs/
-├── browsers/       # fallback Chromium, created when needed
-└── auth.json
-```
+Built with Python, Playwright/CDP, tree-sitter, SQLite, FastAPI, React, and Pydantic AI.
 
-## Stack
+## Authorized Use
 
-- Python, Typer, asyncio, httpx
-- Playwright and Chrome DevTools Protocol
-- tree-sitter and tree-sitter-javascript
-- SQLite, FastAPI, and Uvicorn
-- React, TypeScript, Vite, and Tailwind CSS
+Scan only targets you own or are authorized to assess. Replay actively sends GET and POST requests by default; other methods require `--allow-destructive`. URLs and request bodies may themselves carry credentials, so inspect the actual traffic during review.
 
-## Safety and Authorization
-
-Use TraceSurface only on targets you own or are explicitly authorized to assess. Scans send GET and POST requests by default; `--allow-destructive` enables other methods. Use `--no-replay` when verification is not required.
-
-## License
-
-[MIT](./LICENSE)
+[MIT License](./LICENSE)

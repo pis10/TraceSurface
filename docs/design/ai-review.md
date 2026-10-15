@@ -27,6 +27,6 @@
 
 配置格式 5，不兼容或迁移旧配置；数据库结构本轮不变。站点调度、三并发、失败隔离、批次快照和疑似结果存储继续由 TraceSurface 管理。
 
-测试覆盖四种真实 SDK 请求到本地模拟 HTTP 服务、自定义强度的原值传递、声明与默认值约束、容量仅自定义生效、原生模型名称不污染自定义 Profile、完整结果校验、零接口不请求、无自动重试、凭证隔离、配置 API 与站点任务流程。测试使用临时数据和虚构 Key；不进行本机原生二进制编译，不推送。
+测试覆盖四种真实 SDK 请求到本地模拟 HTTP 服务、自定义强度的原值传递、声明与默认值约束、容量仅自定义生效、原生模型名称不污染自定义 Profile、完整结果校验、零接口不请求、无自动重试、凭证隔离、配置 API 与站点任务流程。自动化测试使用临时数据和虚构 Key。
 
 参考：[模型与服务商](https://pydantic.dev/docs/ai/models/overview/) · [输出机制](https://pydantic.dev/docs/ai/core-concepts/output/) · [思考强度](https://pydantic.dev/docs/ai/capabilities/thinking/) · [安装](https://pydantic.dev/docs/ai/overview/install/)
