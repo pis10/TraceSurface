@@ -46,41 +46,52 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build binary
-        run: uv run --with nuitka==4.1.3 --with ordered-set --with zstandard python scripts/build-binary.py
+      - name: Smoke test source
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            uv run python scripts/smoke-binary.py .venv/Scripts/tracesurface.exe
+          else
+            uv run python scripts/smoke-binary.py .venv/bin/tracesurface
+          fi
 
-      - name: Upload compilation diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: compilation-report-${{ matrix.runner }}
-          path: |
-            build/nuitka/compilation-report.xml
-            nuitka-crash-report.xml
-          if-no-files-found: ignore
+      - name: Build binary
+        run: uv run --with pyinstaller==6.22.3 python scripts/build-binary.py
 
       - name: Smoke test
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            uv run python scripts/smoke-binary.py build/nuitka/tracesurface.exe
+            uv run python scripts/smoke-binary.py build/standalone/tracesurface.exe
           else
-            uv run python scripts/smoke-binary.py build/nuitka/tracesurface
+            uv run python scripts/smoke-binary.py build/standalone/tracesurface
           fi
+
+      - name: Upload packaging diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaging-diagnostics-${{ matrix.runner }}
+          path: |
+            build/standalone/work/tracesurface/warn-tracesurface.txt
+            build/standalone/work/tracesurface/xref-tracesurface.html
+            build/standalone/tracesurface*
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive build/nuitka/tracesurface.exe "dist/${{ matrix.asset }}"
+          Compress-Archive build/standalone/tracesurface.exe "dist/${{ matrix.asset }}"
 
       - name: Package Unix
         if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir -p dist
-          tar -C build/nuitka -czf "dist/${{ matrix.asset }}" tracesurface
+          tar -C build/standalone -czf "dist/${{ matrix.asset }}" tracesurface
 
       - uses: actions/upload-artifact@v4
         with:

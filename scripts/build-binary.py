@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from tracesurface import __version__
-
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT_DIR = ROOT / "build" / "nuitka"
+OUTPUT_DIR = ROOT / "build" / "standalone"
 
 
 def _check_platform() -> None:
@@ -31,41 +30,41 @@ def main() -> None:
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True)
 
+    # Ship the tokenizer data so custom model analysis works without an extra
+    # download on the user's first request.
+    tokenizer_dir = OUTPUT_DIR / "tokenizer-cache"
+    subprocess.run(
+        [sys.executable, "-c", "import tiktoken; tiktoken.get_encoding('cl100k_base')"],
+        env={**os.environ, "TIKTOKEN_CACHE_DIR": str(tokenizer_dir)},
+        check=True,
+    )
     command = [
         sys.executable,
         "-m",
-        "nuitka",
-        "--mode=onefile",
-        "--python-flag=-m",
-        "--assume-yes-for-downloads",
-        "--playwright-include-browser=none",
-        "--include-package=pydantic_ai",
-        "--include-package-data=genai_prices",
-        # Generated catalog data and Google SDK schemas exceed MSVC's optimizer
-        # heap as C code. Preserve the original modules as bundled bytecode.
-        "--noinclude-custom-mode=genai_prices.data:bytecode",
-        "--noinclude-custom-mode=google.genai:bytecode",
-        "--show-scons",
-        f"--report={OUTPUT_DIR / 'compilation-report.xml'}",
-        "--include-package=tiktoken_ext",
-        "--include-distribution-metadata=pydantic-ai-slim",
-        "--include-distribution-metadata=tiktoken",
-        # Default onefile unpacks to a unique temp dir on every launch.
-        "--onefile-cache-mode=cached",
-        f"--onefile-tempdir-spec={{CACHE_DIR}}/tracesurface/{__version__}",
-        f"--output-dir={OUTPUT_DIR}",
-        "--output-filename=tracesurface",
-        "--include-data-dir=tracesurface/server/static=tracesurface/server/static",
-        "--include-data-files=tracesurface/storage/sqlite/schema.sql=tracesurface/storage/sqlite/schema.sql",
-        "--include-data-files=tracesurface/secrets/rules.yml=tracesurface/secrets/rules.yml",
+        "PyInstaller",
+        "--onefile",
+        "--noconfirm",
+        "--clean",
+        "--name=tracesurface",
+        f"--paths={ROOT}",
+        f"--distpath={OUTPUT_DIR}",
+        f"--workpath={OUTPUT_DIR / 'work'}",
+        f"--specpath={OUTPUT_DIR}",
+        "--collect-submodules=pydantic_ai",
+        "--collect-submodules=tiktoken_ext",
+        "--collect-data=genai_prices",
+        "--recursive-copy-metadata=pydantic-ai-slim",
+        "--copy-metadata=tiktoken",
+        "--copy-metadata=openai",
+        "--copy-metadata=anthropic",
+        "--copy-metadata=google-genai",
+        f"--runtime-hook={ROOT / 'scripts' / 'pyinstaller-runtime.py'}",
+        f"--add-data={tokenizer_dir}:tiktoken_cache",
+        f"--add-data={ROOT / 'tracesurface/server/static'}:tracesurface/server/static",
+        f"--add-data={ROOT / 'tracesurface/storage/sqlite/schema.sql'}:tracesurface/storage/sqlite",
+        f"--add-data={ROOT / 'tracesurface/secrets/rules.yml'}:tracesurface/secrets",
+        str(ROOT / "tracesurface" / "__main__.py"),
     ]
-    if sys.platform == "darwin":
-        # Nuitka's downloaded ccache is x86_64 and launches Apple's compiler
-        # under Rosetta, which fails with arm64-only Command Line Tools.
-        command.append("--disable-cache=ccache")
-    if sys.platform == "win32":
-        command.append("--msvc=latest")
-    command.append("tracesurface")
 
     subprocess.run(command, cwd=ROOT, check=True)
     binary = OUTPUT_DIR / (
