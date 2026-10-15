@@ -117,16 +117,16 @@ On first use, starting analysis opens model settings; saving them takes you to s
 
 Model settings offer two paths:
 
-- **From catalog**: providers and models come directly from the installed LiteLLM SDK, with commonly used Chinese providers listed first. Capacity and reasoning parameters follow SDK metadata; there is no separate model registry or model-name exception table. Use custom setup when deployment metadata is unavailable.
-- **Custom connection**: choose an existing LiteLLM adapter and enter the model/deployment name, endpoint, input/output token limits, reasoning mode and values, and JSON-mode support yourself. Capabilities are never inferred from the name. Custom connections also support non-OpenAI adapters.
+- **From catalog**: providers and models come from the installed LiteLLM SDK, with commonly used Chinese providers listed first. The catalog covers hosted services with API key access. Capacity is filled automatically, and reasoning options follow model capabilities. Use custom setup when deployment metadata is unavailable.
+- **Custom connection**: choose OpenAI Chat Completions, Anthropic Messages, or Gemini generateContent, then enter the model/deployment name, API endpoint, key, input/output token limits, reasoning mode and values, and JSON-mode support. Capabilities are never inferred from the name.
 
 ![Custom model settings using a local mock service](docs/images/ai-model-custom.jpg)
 
-Authentication can use an API key, environment/cloud credentials, or no authentication. Additional connection fields (such as project and region) come from the SDK. Default endpoints are resolved by LiteLLM and can be overridden. Actual model access and accepted reasoning parameters depend on the provider.
+Authentication requires only an API key, with no authentication selector or cloud credential fields. LiteLLM resolves default provider endpoints, which can be overridden. Reasoning options follow native SDK support and display effort values in English, without provider- or model-specific patches. Use custom setup for parameters the SDK does not yet expose. Actual model access and accepted parameters depend on the provider.
 
 **Test connection** uses the current settings and validates the response format using a synthetic sample, without scan data or saving changes. Scan traffic is sent only when the user starts analysis.
 
-Credentials are stored locally in `ai-settings.json`, never returned to the browser or included in batch records. Environment authentication uses native provider variables or `TRACESURFACE_AI_KEY`, without persisting environment keys. Changing the adapter, endpoint, or authentication method does not reuse previous credentials. Custom capacity declarations control local input budgeting; they cannot expand the server's actual context window.
+API keys are stored locally in `ai-settings.json`, never returned to the browser or included in batch records. Changing the provider, API format, or endpoint does not reuse the previous key. Custom capacity declarations control local input budgeting; they cannot expand the server's actual context window.
 
 Response bodies are capped at **8 KiB each** by default, with truncation explicitly marked. Stored original responses are unchanged. Results must contain exactly one valid judgment per submitted replay ID. Invalid, incomplete, or failed responses are never recorded as successful reviews. Oversized site inputs fail explicitly instead of being split or silently dropping records.
 

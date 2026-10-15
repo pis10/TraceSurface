@@ -32,12 +32,44 @@ LABELS = {
 }
 PREFERRED = list(LABELS)[:9]
 
+# Product scope: hosted services authenticated by an API key. This only excludes
+# other access methods; provider/model definitions still come from the SDK.
+EXCLUDED_ACCESS = {
+    "custom",
+    "a2a",
+    "amazon_nova",
+    "bedrock",
+    "bedrock_mantle",
+    "chatgpt",
+    "docker_model_runner",
+    "gdc",
+    "github_copilot",
+    "langflow",
+    "langgraph",
+    "llamafile",
+    "lm_studio",
+    "oci",
+    "ollama",
+    "ollama_chat",
+    "oobabooga",
+    "petals",
+    "ragflow",
+    "sagemaker",
+    "sagemaker_chat",
+    "sagemaker_nova",
+    "sap",
+    "snowflake",
+    "triton",
+    "vertex_ai",
+    "vertex_ai_beta",
+    "vllm",
+}
 
-@lru_cache(maxsize=1)
-def connection_fields() -> list[str]:
-    from litellm.types.router import CredentialLiteLLMParams
-
-    return sorted(set(CredentialLiteLLMParams.model_fields) - {"api_key", "api_base"})
+CUSTOM_PROTOCOLS = [
+    {"id": "openai", "label": "OpenAI Chat Completions"},
+    {"id": "anthropic", "label": "Anthropic Messages"},
+    {"id": "gemini", "label": "Gemini generateContent"},
+]
 
 
 @lru_cache(maxsize=1)
@@ -45,10 +77,9 @@ def model_catalog() -> list[dict[str, Any]]:
     llm = get_litellm()
     from litellm.llms.openai_like.json_loader import JSONProviderRegistry
 
-    adapters: set[str] = set(JSONProviderRegistry.list_providers())
+    adapters: set[str] = set(JSONProviderRegistry.list_providers()) - EXCLUDED_ACCESS
     for provider in llm.provider_list:
-        # This adapter requires user code, which this application never runs.
-        if provider.value == "custom":
+        if provider.value in EXCLUDED_ACCESS:
             continue
         try:
             config = llm.ProviderConfigManager.get_provider_chat_config(
@@ -110,10 +141,19 @@ def chat_config(provider_id: str, model: str):
     return llm.ProviderConfigManager.get_provider_chat_config(model, provider)
 
 
+def literal_strings(annotation: Any) -> list[str]:
+    """Unwrap Literal values, including Optional/Union wrappers in SDK types."""
+    return [
+        value
+        for arg in get_args(annotation)
+        for value in ([arg] if isinstance(arg, str) else literal_strings(arg))
+    ]
+
+
 def reasoning_controls(
     provider_id: str, model: str, info: dict[str, Any], params: list[str]
 ) -> tuple[list[str], list[str]]:
-    """Use SDK transformations to avoid advertising controls it silently collapses."""
+    """Expose reasoning controls preserved by the SDK's native adapter."""
     from openai.types.shared.reasoning_effort import ReasoningEffort
 
     modes, efforts = ["default"], []
@@ -129,11 +169,17 @@ def reasoning_controls(
             return ""
 
     if "reasoning_effort" in params:
-        candidates = info.get("reasoning_effort_levels") or list(
-            get_args(ReasoningEffort)
-        )
+        declared = info.get("reasoning_effort_levels")
+        candidates = declared if declared is not None else [
+            level
+            for level in literal_strings(ReasoningEffort)
+            if level in {"low", "medium", "high"}
+            or info.get(f"supports_{level}_reasoning_effort") is True
+        ]
         choices = {
-            str(level): mapped({"reasoning_effort": level}) for level in candidates
+            str(level): mapped({"reasoning_effort": level})
+            for level in candidates
+            if info.get(f"supports_{level}_reasoning_effort") is not False
         }
         # Some adapters translate every nonzero strength into the same on/off switch.
         strengths = {
@@ -199,6 +245,6 @@ def catalog_response() -> dict[str, Any]:
             }
             for provider in model_catalog()
         ],
-        "connection_fields": connection_fields(),
+        "protocols": CUSTOM_PROTOCOLS,
         "source": f"LiteLLM {version('litellm')}",
     }

@@ -5,14 +5,12 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 class AISettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    format_version: Literal[2] = 2
+    format_version: Literal[3] = 3
     mode: Literal["catalog", "custom"] = "catalog"
     provider_id: str = Field(default="deepseek", min_length=1, max_length=100)
     model: str = Field(default="deepseek-flash", min_length=1, max_length=200)
     api_base: str = Field(default="", max_length=500)
-    auth_mode: Literal["key", "environment", "none"] = "key"
     api_key: SecretStr = SecretStr("")
-    connection_params: dict[str, SecretStr] = Field(default_factory=dict, max_length=50)
     max_input_tokens: int | None = Field(default=None, ge=1024, le=100000000)
     max_output_tokens: int | None = Field(default=None, ge=256, le=10000000)
     reasoning_mode: Literal[

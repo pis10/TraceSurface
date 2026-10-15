@@ -10,7 +10,7 @@ from pydantic import SecretStr
 from tracesurface.ai.models import AISettings
 from tracesurface.storage.sqlite.connection import get_home
 
-SECRET_FIELDS = {"api_key", "connection_params"}
+SECRET_FIELDS = {"api_key"}
 
 
 class InvalidSettingsError(ValueError):
@@ -22,7 +22,7 @@ def load_settings() -> AISettings:
     try:
         if path.exists():
             raw = json.loads(path.read_text())
-            if not isinstance(raw, dict) or raw.get("format_version") != 2:
+            if not isinstance(raw, dict) or raw.get("format_version") != 3:
                 raise ValueError("incompatible")
             settings = AISettings.model_validate(raw)
         else:
@@ -38,33 +38,21 @@ def public_settings(settings: AISettings) -> dict[str, Any]:
     return {
         **settings.model_dump(exclude=SECRET_FIELDS),
         "has_api_key": bool(settings.api_key.get_secret_value()),
-        "configured_params": [
-            k for k, v in settings.connection_params.items() if v.get_secret_value()
-        ],
         "ready": (get_home() / "ai-settings.json").exists(),
     }
 
 
-def credential_scope(settings: AISettings) -> tuple[str, str, str]:
-    return settings.provider_id, settings.api_base.rstrip("/"), settings.auth_mode
+def credential_scope(settings: AISettings) -> tuple[str, str]:
+    return settings.provider_id, settings.api_base.rstrip("/")
 
 
 def with_saved_credentials(settings: AISettings) -> AISettings:
     path = get_home() / "ai-settings.json"
     previous = load_settings() if path.exists() else AISettings()
     key = settings.api_key.get_secret_value()
-    params = dict(settings.connection_params)
-    if credential_scope(previous) == credential_scope(settings):
-        if not key:
-            key = previous.api_key.get_secret_value()
-        for name, value in params.items():
-            if not value.get_secret_value() and name in previous.connection_params:
-                params[name] = previous.connection_params[name]
-    if settings.auth_mode != "key":
-        key = ""
-    return settings.model_copy(
-        update={"api_key": SecretStr(key), "connection_params": params}
-    )
+    if credential_scope(previous) == credential_scope(settings) and not key:
+        key = previous.api_key.get_secret_value()
+    return settings.model_copy(update={"api_key": SecretStr(key)})
 
 
 def save_settings(settings: AISettings) -> None:
@@ -72,9 +60,6 @@ def save_settings(settings: AISettings) -> None:
     payload = {
         **settings.model_dump(exclude=SECRET_FIELDS),
         "api_key": settings.api_key.get_secret_value(),
-        "connection_params": {
-            k: v.get_secret_value() for k, v in settings.connection_params.items()
-        },
     }
     fd, temporary = tempfile.mkstemp(dir=get_home(), prefix=".ai-settings-")
     try:
@@ -86,37 +71,15 @@ def save_settings(settings: AISettings) -> None:
             os.unlink(temporary)
 
 
-def connection_values(settings: AISettings) -> dict[str, Any]:
-    from litellm.types.router import CredentialLiteLLMParams
-
-    properties = CredentialLiteLLMParams.model_json_schema()["properties"]
-    values: dict[str, Any] = {}
-    try:
-        for name, value in settings.connection_params.items():
-            raw = value.get_secret_value()
-            if not raw:
-                continue
-            branches = properties[name].get("anyOf", [properties[name]])
-            structured = any(
-                item.get("type") in {"object", "array"} for item in branches
-            )
-            values[name] = (
-                json.loads(raw)
-                if structured and raw.lstrip().startswith(("{", "["))
-                else raw
-            )
-        CredentialLiteLLMParams.model_validate(values)
-    except (ValueError, KeyError):
-        raise ValueError("连接参数格式无效，请检查字段类型和 JSON 格式") from None
-    return values
-
-
 def prepare_settings(value: AISettings, *, credentials: bool = False) -> AISettings:
-    from tracesurface.ai.catalog import connection_fields, find_provider, model_details
+    from tracesurface.ai.catalog import CUSTOM_PROTOCOLS, find_provider, model_details
 
     find_provider(value.provider_id)
-    if set(value.connection_params) - set(connection_fields()):
-        raise ValueError("额外连接参数不在 LiteLLM 凭证字段中")
+    if value.mode == "custom":
+        if value.provider_id not in {item["id"] for item in CUSTOM_PROTOCOLS}:
+            raise ValueError("请选择支持的 API 格式")
+        if not value.api_base:
+            raise ValueError("请填写模型服务的 API 地址")
     if value.mode == "catalog":
         details = model_details(value.provider_id, value.model)
         if value.reasoning_mode not in details["reasoning_modes"]:
@@ -143,7 +106,6 @@ def prepare_settings(value: AISettings, *, credentials: bool = False) -> AISetti
         raise ValueError("思考预算需至少 1024 tokens，且小于最大输出 tokens")
     if credentials:
         value = with_saved_credentials(value)
-        if value.auth_mode == "key" and not value.api_key.get_secret_value():
+        if not value.api_key.get_secret_value().strip():
             raise ValueError("请填写当前接入方式的 API Key")
-    connection_values(value)
     return value

@@ -148,7 +148,6 @@ class AnalysisManager:
                 if credentials is None:
                     raise ValueError("AI 配置不可用，请重新发起分析")
                 settings.api_key = credentials.api_key
-                settings.connection_params = credentials.connection_params
                 payload, truncated = await asyncio.to_thread(
                     build_payload, scan, settings
                 )

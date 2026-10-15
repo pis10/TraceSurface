@@ -446,7 +446,7 @@ class ModelCallTests(unittest.IsolatedAsyncioTestCase):
                     max_input_tokens=32000,
                     max_output_tokens=4096,
                     model="team/custom-local-model",
-                    auth_mode="none",
+                    api_key=SecretStr("test-key"),
                     api_base="http://localhost:8000",
                 ),
             )

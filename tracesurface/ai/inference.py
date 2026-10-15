@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from typing import Any
 
 from tracesurface.ai.models import AISettings, SiteResult, validate_result
 from tracesurface.ai.prompt import SYSTEM_PROMPT
 from tracesurface.ai.runtime import get_litellm
-from tracesurface.ai.settings import connection_values, prepare_settings
+from tracesurface.ai.settings import prepare_settings
 
 
 def request_options(
@@ -39,18 +38,11 @@ def request_options(
         "stream": False,
         "drop_params": False,
     }
-    if settings.auth_mode == "key":
-        if not settings.api_key.get_secret_value():
-            raise ValueError("AI 密钥不可用，请重新配置")
-        options["api_key"] = settings.api_key.get_secret_value()
-    elif settings.auth_mode == "none":
-        # Some clients require a non-empty string even for unauthenticated local services.
-        options["api_key"] = "not-required"
-    elif os.environ.get("TRACESURFACE_AI_KEY"):
-        options["api_key"] = os.environ["TRACESURFACE_AI_KEY"]
+    if not settings.api_key.get_secret_value().strip():
+        raise ValueError("AI 密钥不可用，请重新配置")
+    options["api_key"] = settings.api_key.get_secret_value()
     if settings.api_base:
         options["api_base"] = settings.api_base
-    options.update(connection_values(settings))
     mode = settings.reasoning_mode
     if mode == "effort":
         options["reasoning_effort"] = settings.reasoning_effort

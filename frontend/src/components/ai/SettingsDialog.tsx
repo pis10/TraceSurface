@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, CircleAlert, Loader2, PlugZap, Plus, X, Library, SlidersHorizontal } from "lucide-react";
+import { CheckCircle2, CircleAlert, Loader2, PlugZap, Library, SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -7,7 +7,7 @@ import { SelectPopover } from "@/components/shared/SelectPopover";
 import type { AICatalog, AIConnectionTest, AISettings, AIModelDetails, ReasoningMode } from "@/types/ai";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { credentialScope, effortLabels, reasoningLabels, tokens } from "./configuration";
+import { credentialScope, reasoningLabels, tokens } from "./configuration";
 
 const fieldClass = "mt-1.5 h-10 w-full max-w-none font-sans text-[13px]";
 const numberValue = (value: string) => value === "" ? null : Number(value);
@@ -23,8 +23,6 @@ export function SettingsDialog({ onClose, onSaved }: {
   const [loadingModel, setLoadingModel] = useState(false);
   const [modelError, setModelError] = useState("");
   const [key, setKey] = useState("");
-  const [connection, setConnection] = useState<Record<string, string>>({});
-  const [addingParam, setAddingParam] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
   const [test, setTest] = useState<AIConnectionTest | null>(null);
@@ -37,7 +35,6 @@ export function SettingsDialog({ onClose, onSaved }: {
       setCatalog(models);
       setOriginal(settings);
       setConfig(settings);
-      setConnection(Object.fromEntries(settings.configured_params.map((name) => [name, ""])));
     }).catch((e) => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
   }, [reload]);
@@ -67,21 +64,21 @@ export function SettingsDialog({ onClose, onSaved }: {
   };
   const chooseMode = (mode: AISettings["mode"]) => {
     if (!config || mode === config.mode) return;
-    change({ mode, provider_id: mode === "custom" ? "openai" : "deepseek", model: "", api_base: "", auth_mode: "key",
+    change({ mode, provider_id: mode === "custom" ? "openai" : "deepseek", model: "", api_base: "",
       max_input_tokens: null, max_output_tokens: null, reasoning_mode: "default",
       reasoning_effort: "", thinking_budget: null, json_mode: false });
-    setKey(""); setConnection({});
+    setKey("");
   };
   const chooseProvider = (id: string) => {
     if (!config || id === config.provider_id) return;
-    change({ provider_id: id, model: "", api_base: "", auth_mode: "key", max_input_tokens: null, max_output_tokens: null,
+    change({ provider_id: id, model: "", api_base: "", max_input_tokens: null, max_output_tokens: null,
       reasoning_mode: "default", reasoning_effort: "", thinking_budget: null, json_mode: false });
-    setKey(""); setConnection({});
+    setKey("");
   };
   const submit = async (action: "save" | "test") => {
     if (!config) return;
     if (!config.model.trim()) { setError("请选择或填写模型名称"); return; }
-    if (config.auth_mode === "key" && !hasKey && !key.trim()) { setError("请填写当前接入方式的 API Key"); return; }
+    if (!hasKey && !key.trim()) { setError("请填写当前接入方式的 API Key"); return; }
     if (custom && (!config.max_input_tokens || !config.max_output_tokens)) {
       setError("请填写模型的最大输入和最大输出 tokens"); return;
     }
@@ -91,8 +88,8 @@ export function SettingsDialog({ onClose, onSaved }: {
     setError(""); setBusy(action);
     if (action === "test") setTest(null);
     try {
-      const { has_api_key: _, configured_params: _params, ready: _ready, ...values } = config;
-      const body = { ...values, model: values.model.trim(), api_key: key.trim(), connection_params: connection };
+      const { has_api_key: _, ready: _ready, ...values } = config;
+      const body = { ...values, model: values.model.trim(), api_key: key.trim() };
       if (action === "test") setTest(await api.testAI(body));
       else {
         const saved = await api.saveAISettings(body);
@@ -103,29 +100,6 @@ export function SettingsDialog({ onClose, onSaved }: {
   };
   const modes = custom ? Object.keys(reasoningLabels) as ReasoningMode[] : details?.reasoning_modes ?? ["default"];
   const canSubmit = !!config?.model && !busy && !loadingModel && (custom || (!!details?.max_input_tokens && !!details?.max_output_tokens));
-  const connectionFields = <>
-    {!custom && <label className="block text-xs text-text-2">
-      API 地址
-      <Input className="mt-1.5 h-10" value={config?.api_base ?? ""}
-        onChange={(e) => { change({ api_base: e.target.value }); }}
-        placeholder="留空使用服务商默认地址" />
-    </label>}
-    {Object.entries(connection).map(([name, value]) => <div className="mt-3 flex items-end gap-2" key={name}>
-      <label className="min-w-0 flex-1 text-xs text-text-2"><span className="font-mono">{name}</span>
-        <Input className="mt-1.5 h-10" aria-label={name} type="password" autoComplete="new-password"
-          value={value} placeholder={sameScope && original?.configured_params.includes(name) ? "已配置，留空保留" : "填写参数值；对象或数组使用 JSON"}
-          onChange={(e) => { setConnection({ ...connection, [name]: e.target.value }); setTest(null); }} />
-      </label>
-      <Button type="button" variant="subtle" className="mb-1" aria-label={`移除 ${name}`} onClick={() => {
-        setConnection(Object.fromEntries(Object.entries(connection).filter(([k]) => k !== name))); setTest(null);
-      }}><X className="h-3.5 w-3.5" /></Button>
-    </div>)}
-    {addingParam ? <SelectPopover label="连接参数" value="" placeholder="选择连接参数" icon="none" className={fieldClass}
-      options={(catalog?.connection_fields ?? []).filter((name) => !(name in connection)).map((name) => ({ value: name, label: name }))}
-      onChange={(name) => { setConnection({ ...connection, [name]: "" }); setAddingParam(false); setTest(null); }} />
-      : <Button type="button" variant="subtle" size="sm" className="mt-3" onClick={() => setAddingParam(true)}><Plus className="h-3.5 w-3.5" />添加连接参数</Button>}
-    <p className="mt-2 text-[11px] leading-5 text-text-3">云服务所需的地域、项目和凭证可在此填写，也可使用报告服务运行环境中的配置。</p>
-  </>;
 
   return <Dialog open onOpenChange={(v) => { if (!v && !busy) onClose(); }}>
     <DialogContent className="max-h-[90vh] w-[min(820px,94vw)]" onEscapeKeyDown={(e) => { if (busy) e.preventDefault(); }}>
@@ -149,9 +123,9 @@ export function SettingsDialog({ onClose, onSaved }: {
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
               <section className="min-w-0 space-y-4">
-                <div><div className="text-xs text-text-2">{custom ? "接入方式" : "服务商"}</div>
-                  <SelectPopover label={custom ? "接入方式" : "服务商"} value={config.provider_id} icon="none" className={fieldClass}
-                    options={(catalog?.providers ?? []).map((p) => ({ value: p.id, label: p.label, meta: custom ? undefined : p.models.length ? `${p.models.length} 款` : "手动配置" }))}
+                <div><div className="text-xs text-text-2">{custom ? "API 格式" : "服务商"}</div>
+                  <SelectPopover label={custom ? "API 格式" : "服务商"} value={config.provider_id} icon="none" className={fieldClass}
+                    options={custom ? (catalog?.protocols ?? []).map((p) => ({ value: p.id, label: p.label })) : (catalog?.providers ?? []).map((p) => ({ value: p.id, label: p.label, meta: p.models.length ? `${p.models.length} 款` : "无目录" }))}
                     onChange={chooseProvider} />
                 </div>
                 {custom ? <label className="block text-xs text-text-2">模型 / 部署名称
@@ -160,24 +134,18 @@ export function SettingsDialog({ onClose, onSaved }: {
                   <div className="text-xs text-text-2">模型</div>
                   <SelectPopover label="模型" placeholder="选择模型" value={config.model} icon="none" className={fieldClass}
                     options={provider?.models ?? []} onChange={(model) => change({ model, reasoning_mode: "default", reasoning_effort: "", thinking_budget: null })} />
-                  {provider && !provider.models.length && <p className="mt-2 text-xs leading-5 text-text-3">此服务没有内置模型目录。<button type="button" className="ml-1 text-brand underline underline-offset-2" onClick={() => change({ mode: "custom", max_input_tokens: null, max_output_tokens: null, json_mode: false })}>填写模型信息</button></p>}
+                  {provider && !provider.models.length && <p className="mt-2 text-xs leading-5 text-text-3">此服务没有内置模型目录。<button type="button" className="ml-1 text-brand underline underline-offset-2" onClick={() => chooseMode("custom")}>填写模型信息</button></p>}
                 </div>}
                 {custom && <label className="block text-xs text-text-2">API 地址
-                  <Input className="mt-1.5 h-10" value={config.api_base} onChange={(e) => change({ api_base: e.target.value })} placeholder="官方地址可留空；自建服务填写地址" />
+                  <Input className="mt-1.5 h-10" value={config.api_base} onChange={(e) => change({ api_base: e.target.value })} placeholder="如 https://api.example.com/v1" />
                 </label>}
-                <div><div className="text-xs text-text-2">认证方式</div>
-                  <SelectPopover label="认证方式" value={config.auth_mode} icon="none" searchable={false} className={fieldClass}
-                    options={[{ value: "key", label: "API Key" }, { value: "environment", label: "环境或云服务凭证" }, { value: "none", label: "无需认证" }]}
-                    onChange={(value) => { change({ auth_mode: value as AISettings["auth_mode"] }); setKey(""); }} />
-                </div>
-                {config.auth_mode === "key" && <label className="block text-xs text-text-2">API Key
+                <label className="block text-xs text-text-2">API Key
                   <Input className="mt-1.5 h-10" aria-label="API Key" type="password" autoComplete="new-password" value={key}
                     onChange={(e) => { setKey(e.target.value); setTest(null); setError(""); }} placeholder={hasKey ? "已配置，留空保留" : "填写密钥"} />
                   <span className="mt-1.5 block text-[11px] leading-5 text-text-3">
                     {original?.has_api_key && !sameScope ? "接入方式或地址已改变，请填写对应凭证。" : "密钥仅保存在本机，不会返回浏览器。"}
                   </span>
-                </label>}
-                {config.auth_mode === "environment" && <p className="text-[11px] leading-5 text-text-3">使用运行环境中已有的凭证，或在下方添加服务所需的连接参数。</p>}
+                </label>
               </section>
               <section className="min-w-0 rounded-lg border border-line-2 bg-surface-content p-4">
                 <div className="mb-3 text-xs font-medium">模型能力</div>
@@ -203,7 +171,7 @@ export function SettingsDialog({ onClose, onSaved }: {
                 </div>}
                 {config.reasoning_mode === "effort" && <div className="mt-3"><div className="text-xs text-text-2">思考强度</div>
                   {!custom && details?.reasoning_efforts.length ? <SelectPopover label="思考强度" value={config.reasoning_effort} placeholder="选择强度" icon="none" searchable={false} className={fieldClass}
-                    options={details.reasoning_efforts.map((value) => ({ value, label: effortLabels[value] ?? value }))} onChange={(reasoning_effort) => change({ reasoning_effort })} />
+                    options={details.reasoning_efforts.map((value) => ({ value, label: value }))} onChange={(reasoning_effort) => change({ reasoning_effort })} />
                     : <><Input className="mt-1.5 h-10" aria-label="思考强度" value={config.reasoning_effort} onChange={(e) => change({ reasoning_effort: e.target.value })} placeholder="如 low、high、max" />
                       <p className="mt-1.5 text-[11px] leading-5 text-text-3">{custom ? "填写服务接受的强度值。" : "目录未列出具体档位，请按模型文档填写并测试。"}</p></>}
                 </div>}
@@ -213,10 +181,12 @@ export function SettingsDialog({ onClose, onSaved }: {
                 {!custom && <p className="mt-3 text-[11px] leading-5 text-text-3">容量与可用选项来自模型目录。</p>}
               </section>
             </div>
-            <details className="mt-5 border-t border-line-2 pt-4">
-              <summary className="cursor-pointer text-xs text-text-2">{custom ? "额外连接参数" : "自定义地址与云服务凭证"}{Object.keys(connection).length ? `（${Object.keys(connection).length} 项）` : ""}</summary>
-              <div className="mt-4">{connectionFields}</div>
-            </details>
+            {!custom && <details className="mt-5 border-t border-line-2 pt-4">
+              <summary className="cursor-pointer text-xs text-text-2">更换 API 地址</summary>
+              <label className="mt-4 block text-xs text-text-2">API 地址
+                <Input className="mt-1.5 h-10" value={config.api_base} onChange={(e) => change({ api_base: e.target.value })} placeholder="留空使用服务商默认地址" />
+              </label>
+            </details>}
           </fieldset>
         </div>
         <div className="shrink-0 rounded-b-lg border-t border-line-2 bg-surface-chrome px-6 py-4">
