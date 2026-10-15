@@ -8,7 +8,7 @@
 
 [下载](https://github.com/pis10/TraceSurface/releases/latest) · [快速开始](#快速开始) · [AI Review](#ai-review) · [实战示例](#实战示例) · [English](./README.en.md)
 
-[![Release](https://img.shields.io/github/v/release/pis10/TraceSurface)](https://github.com/pis10/TraceSurface/releases/latest)
+[![Version](https://img.shields.io/badge/version-v1.4.0-blue)](https://github.com/pis10/TraceSurface/tree/v1.4.0)
 [![Build](https://github.com/pis10/TraceSurface/actions/workflows/release.yml/badge.svg)](https://github.com/pis10/TraceSurface/actions/workflows/release.yml)
 [![MIT](https://img.shields.io/badge/License-MIT-22C55E)](./LICENSE)
 

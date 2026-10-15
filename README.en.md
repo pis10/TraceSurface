@@ -8,7 +8,7 @@ Browser tracing · JavaScript AST analysis · Unauthenticated replay · AI Revie
 
 [Download](https://github.com/pis10/TraceSurface/releases/latest) · [Quick Start](#quick-start) · [AI Review](#ai-review) · [Example](#example) · [简体中文](./README.md)
 
-[![Release](https://img.shields.io/github/v/release/pis10/TraceSurface)](https://github.com/pis10/TraceSurface/releases/latest)
+[![Version](https://img.shields.io/badge/version-v1.4.0-blue)](https://github.com/pis10/TraceSurface/tree/v1.4.0)
 [![Build](https://github.com/pis10/TraceSurface/actions/workflows/release.yml/badge.svg)](https://github.com/pis10/TraceSurface/actions/workflows/release.yml)
 [![MIT](https://img.shields.io/badge/License-MIT-22C55E)](./LICENSE)
 
